@@ -146,59 +146,108 @@ def compute_next_token_loss(logits, tokens):
 
 class KGramMLPSeqModel(nn.Module):
     """
-    For each position t in [0..seq_len-1], gather the last k tokens => one-hot => MLP => logits.
-    Return (seq_len, batch, vocab_size).
-
-    Potentially very large memory usage for big vocab or seq_len. chunk_size helps mitigate overhead.
+    K-gram MLP: Looks at last k tokens to predict the next one.
+    Uses embeddings instead of one-hot encoding for efficiency.
+    
+    MY IMPLEMENTATION: I changed this from using one-hot vectors (which would be HUGE)
+    to using embeddings (much more efficient). This was a key optimization I learned about!
     """
 
     def __init__(self, vocab_size, k=3, embed_size=1024, num_inner_layers=1, chunk_size=1):
         super().__init__()
-        self.k = k
-        self.vocab_size = vocab_size
-        self.embed_size = embed_size
+        self.k = k  # how many previous tokens to look at (context window)
+        self.vocab_size = vocab_size  # size of our vocabulary (~50k for GPT-2)
+        self.embed_size = embed_size  # dimension of our embedding vectors
         self.num_inner_layers = num_inner_layers
         self.chunk_size = chunk_size
 
-        # fill in
-
-        self.net = None
+        # so this is PART 1: Embedding layer - This is the key change I made!!!!!!
+        # Instead of one-hot vectors (which would be 50k dimensional), 
+        # we map each token to a dense vector of size embed_size
+        # This is WAY more efficient and learns better representations probably. 
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        
+        # and for PART 2: Build the MLP (Multi-Layer Perceptron)
+        # Math here: if we look at k tokens, each with embed_size dimensions,
+        # our input will be k * embed_size dimensional
+        input_dim = k * embed_size  # e.g., 3 * 1024 = 3072 for k=3
+        hidden_dim = 2048  # I chose this - could experiment with different sizes
+        
+        layers = []
+        
+        # First layer: takes our concatenated embeddings and maps to hidden space
+        layers.append(nn.Linear(input_dim, hidden_dim))
+        layers.append(nn.SiLU())  # SiLU activation - learned (basically chatGPTed) this is better than ReLU
+        
+        # Add extra hidden layers if specified (depth helps with complex patterns)
+        for _ in range(num_inner_layers - 1):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.SiLU())  # same activation for consistency
+        
+        # Final output layer: maps hidden representation to vocabulary probabilities
+        layers.append(nn.Linear(hidden_dim, vocab_size))
+        
+        # Pack everything into a sequential model for easy forward pass
+        self.net = nn.Sequential(*layers)
 
     def forward(self, tokens_seq):
         """
-        tokens_seq: (seq_len, batch)
-        return: (seq_len, batch, vocab_size)
-        We'll do a loop over time steps. chunk_size can reduce overhead.
+        MY FORWARD PASS IMPLEMENTATION:
+        tokens_seq: (seq_len, batch) - our input token sequences
+        return: (seq_len, batch, vocab_size) - predictions for next token at each position
+        
+        The tricky part here is that for each position, we need to look at the 
+        previous k tokens and predict what comes next!
         """
         seq_len, batch_size = tokens_seq.shape
         outputs = []
 
+        # Process in chunks to avoid memory issues (learned this the hard way lol claude helped)
         start = 0
         while start < seq_len:
             end = min(start + self.chunk_size, seq_len)
             block_outputs = []
+            
+            # For each timestep in this chunk...
             for t in range(start, end):
                 batch_logits = []
+                
+                # Process each item in the batch separately
                 for b in range(batch_size):
+                    # STEP 1: Get context window (last k tokens before position t)
                     if t < self.k:
+                        # Edge case: if we don't have k previous tokens, pad with zeros
                         needed = self.k - t
                         context_ids = [0]*needed + tokens_seq[:t, b].tolist()
                     else:
+                        # Normal case: take the last k tokens
                         context_ids = tokens_seq[t-self.k:t, b].tolist()
 
-                    context_oh = F.one_hot(
-                        torch.tensor(context_ids, dtype=torch.long, device=tokens_seq.device),
-                        num_classes=self.vocab_size
+                    # STEP 2: Convert token IDs to embeddings (this is the key improvement)
+                    context_tensor = torch.tensor(
+                        context_ids, 
+                        dtype=torch.long, 
+                        device=tokens_seq.device
                     )
-                    context_flat = context_oh.flatten().float().unsqueeze(0)
-                    logits_b = self.net(context_flat)  # (1, vocab_size)
+                    context_emb = self.embedding(context_tensor)  # shape: (k, embed_size)
+                    
+                    # STEP 3: Flatten embeddings to feed into MLP
+                    # We concatenate all k embeddings into one big vector
+                    context_flat = context_emb.flatten().unsqueeze(0)  # shape: (1, k*embed_size)
+                    
+                    # STEP 4: Pass through our MLP to get predictions
+                    logits_b = self.net(context_flat)  # shape: (1, vocab_size)
                     batch_logits.append(logits_b)
+                    
+                # Combine all batch items for this timestep
                 block_outputs.append(torch.cat(batch_logits, dim=0).unsqueeze(0))  # (1, batch, vocab_size)
 
+            # Combine all timesteps in this chunk
             block_outputs = torch.cat(block_outputs, dim=0)  # (chunk_size, batch, vocab_size)
             outputs.append(block_outputs)
             start = end
 
+        # Combine all chunks to get final output
         outputs = torch.cat(outputs, dim=0)  # (seq_len, batch, vocab_size)
         return outputs
 
@@ -231,20 +280,287 @@ class LSTMSeqModel(nn.Module):
 
 
 ################################################################################
-# 5. Our "stub" Transformer with KV-cache 
-#    Very slow Python loop for training. Multi-head sums head outputs.
+# 5. Transformer Implementation
 ################################################################################
 
 class RMSNorm(nn.Module):
-    def __init__(self, dim, eps=1e-5):
+    """
+    MY IMPLEMENTATION here: Root Mean Square Normalization
+    This is used in modern transformers like LLaMA instead of LayerNorm
+    
+    Why RMSNorm? It's simpler than LayerNorm (no bias term, no mean centering)
+    but works just as well, I learned this is becoming the new standard. (again asked Claude)
+    """
+    def __init__(self, dim, eps=1e-6):
         super().__init__()
-        pass
+        self.eps = eps  # small number to avoid division by zero
+        
+        # Learnable scale parameter (like LayerNorm's gamma)
+        # Initialized to ones, so initially it's just identity
+        self.weight = nn.Parameter(torch.ones(dim))
+    
+    def forward(self, x):
+        """
+        MY RMSNorm forward pass:
+        x: (..., dim) - input can be any shape as long as last dim is 'dim'
+        
+        The math: RMS = sqrt(mean(x^2) + eps)
+        Then normalize: x / RMS, and scale by learnable weight
+        """
+        # Compute Root Mean Square over the last dimension
+        # Why x**2? Because RMS is the square root of the mean of squares!
+        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        
+        # Normalize by RMS and apply learnable scaling
+        # This is like z-score normalization but without subtracting the mean
+        return self.weight * (x / rms)
+
+
+class CausalSelfAttention(nn.Module):
+    """
+    MY IMPLEMENTATION: Single attention head with causal masking
+    
+    This is the core of the transformer! Each attention head looks at the sequence
+    and figures out which tokens should pay attention to which other tokens.
+    
+    "Causal" means we can only look backwards - no cheating by seeing future tokens
+    """
+    def __init__(self, d_model, head_dim):
+        super().__init__()
+        self.d_model = d_model  # input dimension (e.g., 1024)
+        self.head_dim = head_dim  # this head's dimension (e.g., 128)
+        
+        # Scale factor for attention scores - prevents softmax saturation
+        # This is from the "Attention Is All You Need" paper!
+        self.scale = head_dim ** -0.5  # = 1/sqrt(head_dim)
+        
+        # The famous Q, K, V projections (no bias needed)
+        # Query: "what am I looking for?"
+        # Key: "what do I contain?" 
+        # Value: "what information do I have?"
+        self.query = nn.Linear(d_model, head_dim, bias=False)
+        self.key = nn.Linear(d_model, head_dim, bias=False)
+        self.value = nn.Linear(d_model, head_dim, bias=False)
+    
+    def forward(self, x):
+        """
+        MY ATTENTION FORWARD PASS:
+        x: (seq_len, batch, d_model) - input sequence
+        returns: (seq_len, batch, head_dim) - attended output
+        
+        This implements the scaled dot-product attention with causal masking!
+        """
+        seq_len, batch, d_model = x.shape
+        
+        # STEP 1: Project input to Query, Key, Value
+        Q = self.query(x)  # (seq_len, batch, head_dim) - what each token is looking for
+        K = self.key(x)    # (seq_len, batch, head_dim) - what each token offers
+        V = self.value(x)  # (seq_len, batch, head_dim) - the actual content to attend to
+        
+        # STEP 2: Reshape for batch matrix multiplication
+        # PyTorch's bmm expects (batch, seq_len, head_dim)
+        Q = Q.transpose(0, 1)  # (batch, seq_len, head_dim)
+        K = K.transpose(0, 1)
+        V = V.transpose(0, 1)
+        
+        # STEP 3: Compute attention scores - the magic happens here!
+        # Q @ K^T gives us a (batch, seq_len, seq_len) matrix where entry (i,j) 
+        # represents how much token i should attend to token j
+        scores = torch.bmm(Q, K.transpose(1, 2)) * self.scale  # (batch, seq_len, seq_len)
+        
+        # STEP 4: Apply causal mask - this is CRUCIAL for language modeling!
+        # We can't let tokens see into the future, so we mask out upper triangle
+        # triu creates upper triangular matrix filled with -inf above diagonal
+        mask = torch.triu(torch.full((seq_len, seq_len), float('-inf'), device=x.device), diagonal=1)
+        scores = scores + mask.unsqueeze(0)  # broadcast mask across batch dimension
+        
+        # STEP 5: Apply softmax to get attention weights (probabilities)
+        # -inf values become 0 after softmax, effectively masking them out
+        attn_weights = F.softmax(scores, dim=-1)  # (batch, seq_len, seq_len)
+        
+        # STEP 6: Apply attention weights to values
+        # This is the weighted sum - we take linear combination of all values
+        # based on attention weights
+        output = torch.bmm(attn_weights, V)  # (batch, seq_len, head_dim)
+        
+        # STEP 7: Reshape back to original format
+        output = output.transpose(0, 1)  # (seq_len, batch, head_dim)
+        
+        return output
+
+
+class MultiHeadAttention(nn.Module):
+    """
+    Multiple attention heads that sum their outputs
+    """
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        
+        # Create attention heads
+        self.heads = nn.ModuleList([
+            CausalSelfAttention(d_model, self.head_dim)
+            for _ in range(n_heads)
+        ])
+        
+        # Output projection
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+    
+    def forward(self, x):
+        """
+        x: (seq_len, batch, d_model)
+        returns: (seq_len, batch, d_model)
+        """
+        # Run each head
+        head_outputs = [head(x) for head in self.heads]
+        
+        # Concatenate
+        concat_output = torch.cat(head_outputs, dim=-1)
+        
+        # Output projection
+        output = self.out_proj(concat_output)
+        
+        return output
+
+
+class FeedForward(nn.Module):
+    """
+    Position-wise Feed-Forward Network
+    """
+    def __init__(self, d_model, d_ff=None):
+        super().__init__()
+        if d_ff is None:
+            d_ff = 4 * d_model  # Standard 4x expansion
+        
+        self.fc1 = nn.Linear(d_model, d_ff, bias=False)
+        self.fc2 = nn.Linear(d_ff, d_model, bias=False)
+    
+    def forward(self, x):
+        """
+        x: (seq_len, batch, d_model)
+        """
+        x = self.fc1(x)
+        x = F.silu(x)  # SiLU activation
+        x = self.fc2(x)
+        return x
+
+
+class TransformerBlock(nn.Module):
+    """
+    Single transformer block with Pre-Norm architecture
+    """
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        
+        self.norm1 = RMSNorm(d_model)
+        self.attention = MultiHeadAttention(d_model, n_heads)
+        
+        self.norm2 = RMSNorm(d_model)
+        self.ffn = FeedForward(d_model)
+    
+    def forward(self, x):
+        """
+        x: (seq_len, batch, d_model)
+        """
+        # Self-attention with residual (Pre-Norm)
+        x = x + self.attention(self.norm1(x))
+        
+        # Feed-forward with residual (Pre-Norm)
+        x = x + self.ffn(self.norm2(x))
+        
+        return x
+
 
 class TransformerModel(nn.Module):
-    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4):
+    """
+    MY COMPLETE TRANSFORMER IMPLEMENTATION hehe:
+    This is a causal decoder-only transformer just like GPT almost i guess.
+    
+    Architecture: Embedding -> N x TransformerBlocks -> Norm -> Output Projection
+    Each block has: RMSNorm -> MultiHeadAttention -> RMSNorm -> FeedForward
+    
+    "Causal" = can only see past tokens (autoregressive language modeling)
+    "Decoder-only" = we don't have an encoder part (unlike original Transformer)
+    """
+    def __init__(self, vocab_size=50257, d_model=1024, n_heads=8, n_blocks=4):
         super().__init__()
-
-        pass
+        # Store hyperparameters
+        self.vocab_size = vocab_size  # size of vocabulary (GPT-2 uses ~50k)
+        self.d_model = d_model        # hidden dimension (1024 is pretty standard)
+        self.n_heads = n_heads        # number of attention heads (8 is common)
+        self.n_blocks = n_blocks      # number of transformer layers (GPT-2 small has 12, but 4 is good for learning)
+        
+        # COMPONENT 1: Token embedding layer
+        # Maps token IDs (integers) to dense vectors of size d_model
+        self.token_embedding = nn.Embedding(vocab_size, d_model)
+        
+        # COMPONENT 2: Stack of transformer blocks (this is the main architecture!)
+        # Each block has attention + feedforward with residual connections
+        self.blocks = nn.ModuleList([
+            TransformerBlock(d_model, n_heads)
+            for _ in range(n_blocks)
+        ])
+        
+        # COMPONENT 3: Final layer normalization
+        # Good practice to normalize before the final prediction
+        self.final_norm = RMSNorm(d_model)
+        
+        # COMPONENT 4: Output projection (sometimes called "unembedding")
+        # Maps from d_model back to vocabulary size for token prediction
+        self.output_proj = nn.Linear(d_model, vocab_size, bias=False)
+        
+        # COMPONENT 5: Initialize weights properly (this matters a lot!)
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, module):
+        """
+        MY WEIGHT INITIALIZATION SCHEME:
+        Proper initialization is super important for training stability!
+        
+        I learned that transformers are sensitive to initialization - too big and
+        gradients explode, too small and they don't learn. 0.02 std is the sweet spot.
+        """
+        if isinstance(module, nn.Linear):
+            # Initialize linear layer weights with small random values
+            # 0.02 standard deviation is what GPT-2 uses - works well in practice!
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                # Initialize biases to zero (standard practice)
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            # Embedding layers also get small random initialization
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    
+    def forward(self, tokens):
+        """
+        MY TRANSFORMER FORWARD PASS:
+        tokens: (seq_len, batch) - input token IDs
+        returns: (seq_len, batch, vocab_size) - logits for next token prediction
+        
+        This is the complete forward pass through my transformer!
+        """
+        # STEP 1: Convert token IDs to embeddings
+        # This maps each token (integer) to a rich vector representation
+        x = self.token_embedding(tokens)  # (seq_len, batch, d_model)
+        
+        # STEP 2: Pass through all transformer blocks sequentially
+        # Each block does: norm -> attention -> residual, norm -> ffn -> residual
+        for block in self.blocks:
+            x = block(x)  # x keeps the same shape throughout
+        
+        # STEP 3: Final layer normalization
+        # Helps with training stability and final predictions
+        x = self.final_norm(x)
+        
+        # STEP 4: Project back to vocabulary space
+        # This gives us logits (unnormalized probabilities) for each token in vocab
+        logits = self.output_proj(x)  # (seq_len, batch, vocab_size)
+        
+        return logits
 
 
 ################################################################################
@@ -261,7 +577,62 @@ def monosemantic_analysis_for_token(token_id, model, enc, device="cpu", top_n=5)
 ################################################################################
 
 def nucleus_sampling(logits, p=0.95):
-    return torch.argmax(logits).item()
+    """
+    MY IMPLEMENTATION for this: Nucleus sampling (top-p sampling)
+    This is WAY better than greedy decoding! Instead of always picking the most likely token,
+    we pick from the smallest set of tokens that covers p% of the probability mass.
+    
+    Why is this better? Greedy can be repetitive, random can be nonsensical,
+    but nucleus gives us a good balance of coherent and diverse text!
+    
+    Example: if p=0.9, we might need the top 20 tokens to cover 90% probability,
+    so we sample randomly from just those 20 (not the full 50k vocab!)
+    """
+    
+    # Handle edge cases first (learned to always check these!)
+    if p >= 1.0:
+        # p=1.0 means sample from full distribution (completely random)
+        probs = F.softmax(logits, dim=-1)
+        return torch.multinomial(probs, num_samples=1).item()
+    
+    if p <= 0.0:
+        # p=0.0 means greedy (just pick the most likely)
+        return torch.argmax(logits).item()
+    
+    # STEP 1: Convert raw logits to probabilities using softmax
+    probs = F.softmax(logits, dim=-1)
+    
+    # STEP 2: Sort tokens by probability (highest first)
+    # This gives us sorted_probs and the corresponding original indices
+    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+    
+    # STEP 3: Calculate cumulative probability 
+    # cumsum_probs[i] = sum of probabilities from index 0 to i
+    cumsum_probs = torch.cumsum(sorted_probs, dim=0)
+    
+    # STEP 4: Find where cumulative probability first exceeds p
+    cutoff_mask = cumsum_probs >= p
+    
+    if cutoff_mask.any():
+        # Find the first index where cumsum >= p
+        cutoff_idx = torch.where(cutoff_mask)[0][0].item()
+    else:
+        # Safety fallback (shouldn't happen unless p is super tiny)
+        cutoff_idx = 0
+    
+    # STEP 5: Keep only the "nucleus" - top tokens that sum to p% probability
+    top_probs = sorted_probs[:cutoff_idx + 1]
+    top_indices = sorted_indices[:cutoff_idx + 1]
+    
+    # STEP 6: Renormalize so probabilities sum to 1 again
+    # (since we removed the tail of the distribution)
+    top_probs = top_probs / top_probs.sum()
+    
+    # STEP 7: Sample from this truncated distribution
+    sampled_idx = torch.multinomial(top_probs, num_samples=1).item()
+    chosen_token = top_indices[sampled_idx].item()
+    
+    return chosen_token
 
 
 def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
@@ -535,12 +906,18 @@ def main():
     ).to(device)
 
     transformer = TransformerModel(
+        vocab_size=vocab_size,
+        d_model=embed_size,
+        n_heads=8,
+        n_blocks=4
     ).to(device)
 
+    # MY MODEL DICTIONARY - I enabled all three models for comparison
+    # Before this change, some models might have been disabled or incomplete 
     models = {
-      # "kgram_mlp_seq": kgram_model,
-        "lstm_seq": lstm_model,
-      # "kvcache_transformer": kv_transformer,
+        "kgram_mlp_seq": kgram_model,    # My improved K-gram model with embeddings
+        "lstm_seq": lstm_model,          # LSTM baseline for comparison
+        "transformer": transformer,      # My complete transformer implementation!
     }
 
 
