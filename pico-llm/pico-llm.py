@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import os
+import random
 import json
-
 
 # We do not import numpy or scikit-learn, so we implement a naive k-means in pure PyTorch.
 # If you prefer scikit-learn, you can adapt the code.
@@ -921,10 +921,14 @@ def main():
                 model, enc, args.prompt, max_new_tokens=20, device=device,
                 top_p=1.0,
             )
-            # --- Save final weights-only for this model ---
-            final_path = os.path.join(args.save_dir, f"{model_name}_final_weights.pth")
+
+            # --- Save final weights-only for this model with random suffix ---
+            rand_suffix = random.randint(10000, 99999)
+            final_name = f"{model_name}_weights_{rand_suffix}.pth"
+            final_path = os.path.join(args.save_dir, final_name)
             torch.save(model.state_dict(), final_path)
             saved_weight_paths.append(final_path)
+            print(f"[{model_name}] Saved final weights to: {final_path}")
 
         # Final generation from the user-provided prompt (args.prompt).
             with torch.no_grad():
@@ -962,6 +966,10 @@ def main():
                     f.write(f"## {model_name} final_generations\n")
                     f.write(json.dumps(final_generations, ensure_ascii=False) + "\n\n")
 
+    # Summary of saved files
+    print("\nSaved model weight files:")
+    for p in saved_weight_paths:
+        print(" -", p)
 
 if __name__ == "__main__":
     main()
