@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import os
-import zipfile
+import json
 
 
 # We do not import numpy or scikit-learn, so we implement a naive k-means in pure PyTorch.
@@ -639,12 +639,15 @@ def train_one_model(model,
                     max_steps_per_epoch=None,
                     enc=None,
                     monosemantic_info=None,
-                    prompt="Once upon a"):
+                    prompt="Once upon a",
+                    log_file_path=None):
     """
     We add `prompt` as an explicit argument so we can pass it down from main().
     """
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    ce_losses_by_epoch = []
+    generations_by_epoch = {}
     start_time = time.time()
     next_sample_time = start_time
     global_step = 0
@@ -654,8 +657,9 @@ def train_one_model(model,
         total_loss = 0.0
         partial_loss = 0.0
         partial_count = 0
-
+        epoch_ce_losses = []
         step_in_epoch = 0
+        
         for batch_idx, batch_tokens in enumerate(loader, start=1):
             step_in_epoch += 1
             global_step += 1
@@ -664,6 +668,7 @@ def train_one_model(model,
 
             logits = model(batch_tokens)  # (seq_len, batch, vocab_size)
             loss = compute_next_token_loss(logits, batch_tokens)
+            epoch_ce_losses.append(float(loss.item()))
 
             optimizer.zero_grad()
             loss.backward()
@@ -684,46 +689,59 @@ def train_one_model(model,
             current_time = time.time()
             if current_time >= next_sample_time and enc is not None:
                 with torch.no_grad():
-                    print(f"\n[{model_name}] Generating sample text (greedy) at epoch={epoch}, step={batch_idx}...")
-                    text_greedy, ann_greedy = sample_fast(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=None,
-                        monosemantic_info=monosemantic_info,
-                        do_monosemantic=(monosemantic_info is not None)
-                    )
-                    print(f" Greedy Sample: {text_greedy}")
-                    print(f" Annotated: {ann_greedy}\n")
-
-                    print(f"[{model_name}] Generating sample text (top-p=0.95) at epoch={epoch}, step={batch_idx}...")
-                    text_topp, ann_topp = sample_fast(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=0.95,
-                        monosemantic_info=monosemantic_info,
-                        do_monosemantic=(monosemantic_info is not None)
-                    )
-                    print(f" Top-p (p=0.95) Sample: {text_topp}")
-                    print(f" Annotated: {ann_topp}\n")
-
-                    # third generation => top-p=1.0 => full distribution random sampling
-                    print(f"[{model_name}] Generating sample text (top-p=1.0) at epoch={epoch}, step={batch_idx}...")
-                    text_topp1, ann_topp1 = sample_fast(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=1.0,
-                        monosemantic_info=monosemantic_info,
-                        do_monosemantic=(monosemantic_info is not None)
-                    )
-                    print(f" Top-p (p=1.0) Sample: {text_topp1}")
-                    print(f" Annotated: {ann_topp1}\n")
+                    print(f"\n[{model_name}] Generating sample texts at epoch={epoch}, step={batch_idx}...")
+                    gen_settings = [
+                        ("greedy", None),
+                        ("top-p=0.2", 0.2),
+                        ("top-p=0.5", 0.5),
+                        ("top-p=0.8", 0.8),
+                        ("top-p=0.95", 0.95),
+                        ("top-p=1.0", 1.0),
+                    ]
+                    for label, p in gen_settings:
+                        text_out, ann_out = sample_fast(
+                            model, enc, prompt,
+                            max_new_tokens=20, device=device, top_p=p,
+                            monosemantic_info=monosemantic_info,
+                            do_monosemantic=(monosemantic_info is not None),
+                        )
+                        print(f"[{model_name}] {label} Sample: {text_out}")
+                        print(f" Annotated: {ann_out}\n")
 
                 next_sample_time = current_time + sample_interval
 
             if max_steps_per_epoch is not None and step_in_epoch >= max_steps_per_epoch:
                 print(f"[{model_name}] Reached max_steps_per_epoch={max_steps_per_epoch}, ending epoch {epoch} early.")
                 break
-
+            
+        ce_losses_by_epoch.append(epoch_ce_losses)
         avg_loss = total_loss / step_in_epoch
         print(f"[{model_name}] *** End of Epoch {epoch} *** Avg Loss: {avg_loss:.4f}")
-
+        gen_settings = [
+            ("greedy", None),
+            ("top-p=0.2", 0.2),
+            ("top-p=0.5", 0.5),
+            ("top-p=0.8", 0.8),
+            ("top-p=0.95", 0.95),
+            ("top-p=1.0", 1.0),
+        ]
+        epoch_map = {}
+        with torch.no_grad():
+            for label, p in gen_settings:
+                text_out, ann_out = sample_fast(
+                    model, enc, prompt,
+                    max_new_tokens=20, device=device, top_p=p,
+                    monosemantic_info=monosemantic_info,
+                    do_monosemantic=(monosemantic_info is not None),
+                )
+                epoch_map[label] = {"text": text_out, "annotated": ann_out}
+        generations_by_epoch[epoch] = epoch_map
+    if log_file_path is not None:
+        with open(log_file_path, "a", encoding="utf-8") as f:
+            f.write(f"## {model_name} CE_losses_by_epoch\n")
+            f.write(repr(ce_losses_by_epoch) + "\n\n")
+            f.write(f"## {model_name} Generations_by_epoch\n")
+            f.write(json.dumps(generations_by_epoch, indent=2) + "\n\n")
 
 ################################################################################
 # 9. Main
@@ -732,6 +750,10 @@ def train_one_model(model,
 def main():
     args = parse_args()
     os.makedirs(args.save_dir, exist_ok=True)
+    log_file_path = os.path.join(args.save_dir, "logs.txt")
+    with open(log_file_path, "w", encoding="utf-8") as f:
+        f.write("")  # start fresh
+
     saved_weight_paths = []
 
     # Additional local variables from arguments
@@ -740,7 +762,7 @@ def main():
 
     embed_size = args.embed_size
     batch_size = 16
-    num_epochs = 3
+    num_epochs = 5
     learning_rate = 1e-3
 
     block_size = args.block_size
@@ -865,7 +887,8 @@ def main():
             sample_interval=sample_interval_seconds,
             max_steps_per_epoch=max_steps_per_epoch,
             enc=enc,
-            prompt=args.prompt  # <--- Pass the user-specified prompt here
+            prompt=args.prompt,
+            log_file_path=log_file_path,
         )
 
         # Final generation from the user-provided prompt (args.prompt).
@@ -902,35 +925,42 @@ def main():
             final_path = os.path.join(args.save_dir, f"{model_name}_final_weights.pth")
             torch.save(model.state_dict(), final_path)
             saved_weight_paths.append(final_path)
-            print(f"[{model_name}] Saved final weights to: {final_path}")
-            print("--------------------------------------------------")
 
+        # Final generation from the user-provided prompt (args.prompt).
+            with torch.no_grad():
+                gen_settings = [
+                    ("greedy", None),
+                    ("top-p=0.2", 0.2),
+                    ("top-p=0.5", 0.5),
+                    ("top-p=0.8", 0.8),
+                    ("top-p=0.95", 0.95),
+                    ("top-p=1.0", 1.0),
+                ]
 
-        print(f"[{model_name}] Final sample (greedy) from prompt: '{args.prompt}'")
-        print(text_greedy)
-        print(f"Annotated:\n{ann_greedy}\n")
+                # Collect for logging
+                final_generations = {}  # {label: {"text":..., "annotated":...}}
 
-        print(f"[{model_name}] Final sample (top-p=0.2) from prompt: '{args.prompt}'")
-        print(text_topp2)
-        print(f"Annotated:\n{ann_topp2}\n")
+                for label, p in gen_settings:
+                    text_out, ann_out = sample_fast(
+                        model, enc, args.prompt, max_new_tokens=20, device=device, top_p=p,
+                    )
+                    final_generations[label] = {"text": text_out, "annotated": ann_out}
 
-        print(f"[{model_name}] Final sample (top-p=0.5) from prompt: '{args.prompt}'")
-        print(text_topp5)
-        print(f"Annotated:\n{ann_topp5}\n")
+                    print(f"[{model_name}] Final sample ({label}) from prompt: '{args.prompt}'")
+                    print(text_out)
+                    print(f"Annotated:\n{ann_out}\n")
 
-        print(f"[{model_name}] Final sample (top-p=0.8) from prompt: '{args.prompt}'")
-        print(text_topp8)
-        print(f"Annotated:\n{ann_topp8}\n")
+                # --- Save final weights-only for this model ---
+                final_path = os.path.join(args.save_dir, f"{model_name}_final_weights.pth")
+                torch.save(model.state_dict(), final_path)
+                saved_weight_paths.append(final_path)
+                print(f"[{model_name}] Saved final weights to: {final_path}")
+                print("--------------------------------------------------")
 
-        print(f"[{model_name}] Final sample (top-p=0.95) from prompt: '{args.prompt}'")
-        print(text_topp)
-        print(f"Annotated:\n{ann_topp}\n")
-
-        print(f"[{model_name}] Final sample (top-p=1.0) from prompt: '{args.prompt}'")
-        print(text_topp1)
-        print(f"Annotated:\n{ann_topp1}")
-        print("--------------------------------------------------")
-
+                # --- Append final generations to logs.txt ---
+                with open(log_file_path, "a", encoding="utf-8") as f:
+                    f.write(f"## {model_name} final_generations\n")
+                    f.write(json.dumps(final_generations, ensure_ascii=False) + "\n\n")
 
 
 if __name__ == "__main__":
