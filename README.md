@@ -25,7 +25,7 @@ python pico-llm.py \
 ```bash
 python pico-llm.py \
   --tinystories_weight 1.0 \
-  --prompt "2 4 6 8 10" \
+  --prompt "Once upon a time" \
   --block_size 256 \
   --max_steps_per_epoch 300 \
   --device_id cpu \
