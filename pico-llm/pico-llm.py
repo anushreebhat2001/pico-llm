@@ -51,8 +51,59 @@ def parse_args():
     parser.add_argument("--device_id", type=str, default="cuda:0",
                         help="Torch device identifier (default='cuda:0'). If CUDA is unavailable, fallback to 'cpu'.")
 
+    # Save the model
+    parser.add_argument("--save_dir", type=str, default="./saved_models",
+                        help="Directory to save model weights. Default='./saved_models'")
+    parser.add_argument("--save_name", type=str, default=None,
+                        help="Custom name for saved model (e.g., 'my_transformer'). If not provided, uses model_name")
+    parser.add_argument("--load_model", type=str, default=None,
+                        help="Path to saved model weights to load")
+
     args = parser.parse_args()
     return args
+
+################################################################################
+# Save and Load model
+################################################################################
+
+def save_model_weights(model, model_name, save_name, save_dir="./saved_models"):
+    """
+    Save just the model weights.
+    
+    Args:
+        model: The model to save
+        model_name: Name for the file (e.g., "transformer")
+        save_dir: Directory to save in
+        
+    Returns:
+        Path to saved file
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    filepath = os.path.join(save_dir, f"{save_name}")
+    torch.save(model.state_dict(), filepath)
+    
+    print(f"✓ Model weights saved to: {filepath}")
+    return filepath
+
+
+def load_model_weights(model, filepath, device="cpu"):
+    """
+    Load model weights.
+    
+    Args:
+        model: The model to load weights into
+        filepath: Path to the weights file
+        device: Device to load on
+    """
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Model weights not found: {filepath}")
+    
+    print(f"Loading model weights from: {filepath}")
+    model.load_state_dict(torch.load(filepath, map_location=device))
+    print("✓ Model weights loaded successfully")
+    
+    return model
 
 
 ################################################################################
@@ -330,13 +381,15 @@ def train_one_model(model,
                     epochs,
                     model_name,
                     device,
+                    save_name,
                     lr=1e-3,
                     log_steps=100,
                     sample_interval=30,
                     max_steps_per_epoch=None,
                     enc=None,
                     monosemantic_info=None,
-                    prompt="Once upon a"):
+                    prompt="Once upon a",
+                    save_dir="./saved_models"):
     """
     We add `prompt` as an explicit argument so we can pass it down from main().
     """
@@ -420,6 +473,9 @@ def train_one_model(model,
 
         avg_loss = total_loss / step_in_epoch
         print(f"[{model_name}] *** End of Epoch {epoch} *** Avg Loss: {avg_loss:.4f}")
+        
+    print(f"\n[{model_name}] Training complete! Saving model weights")
+    save_model_weights(model, model_name, save_name, save_dir)
 
 
 ################################################################################
