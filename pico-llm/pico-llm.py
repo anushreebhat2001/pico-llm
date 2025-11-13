@@ -286,11 +286,11 @@ class MLP(nn.Module):
         return self.net(x)
 
 
+
 class CausalSelfAttention(nn.Module):
     """
     KV-cache aware multi-head self-attention.
-    Training: pass full x (T,B,C), past_kv=None -> returns (T,B,C), present_kv.
-    Cached gen: pass x with T=1 and past_kv=(Kpast,Vpast) -> returns (1,B,C), new (K,V).
+    Now can optionally return attention weights.
     """
     def __init__(self, d_model, n_heads, dropout=0.0, bias=True):
         super().__init__()
@@ -304,46 +304,64 @@ class CausalSelfAttention(nn.Module):
         self.resid_drop = nn.Dropout(dropout)
 
         self.register_buffer("tri_mask_cache", None, persistent=False)
+        
+        # NEW: Store attention weights if requested
+        self.save_attention = False
+        self.attention_weights = None
 
-    def _split(self, t):  # (T,B,C) -> (B,nH,T,Hd)
+    def _split(self, t):
         T, B, C = t.shape
         return t.view(T, B, self.n_heads, self.head_dim).permute(1, 2, 0, 3)
 
     def forward(self, x, past_kv=None):
         T, B, C = x.shape
-        qkv = self.qkv(x)             # (T,B,3C)
+        qkv = self.qkv(x)
         q, k, v = qkv.chunk(3, dim=-1)
 
-        q = self._split(q)            # (B,nH,T,Hd)
+        q = self._split(q)
         k = self._split(k)
         v = self._split(v)
 
         if past_kv is not None:
-            Kpast, Vpast = past_kv    # (B,nH,Tp,Hd)
+            Kpast, Vpast = past_kv
             k = torch.cat([Kpast, k], dim=2)
             v = torch.cat([Vpast, v], dim=2)
 
-        if hasattr(F, "scaled_dot_product_attention"):
-            # Use causal mask only when computing a fresh block (no past)
-            y = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=None,
-                dropout_p=self.attn_drop.p if self.training else 0.0,
-                is_causal=(past_kv is None),
-            )  # (B,nH,T,Hd)
-        else:
-            # Manual attention (fallback)
-            att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)  # (B,nH,T,Tk)
+        # NEW: Check if we should save attention weights
+        if self.save_attention:
+            # Manually compute attention to capture weights
+            att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            
             if past_kv is None:
                 Tk = att.size(-1)
                 if self.tri_mask_cache is None or self.tri_mask_cache.size(-1) < Tk or self.tri_mask_cache.size(-2) < T:
                     self.tri_mask_cache = torch.tril(torch.ones(T, Tk, device=x.device, dtype=torch.bool))
                 att = att.masked_fill(~self.tri_mask_cache, float("-inf"))
+            
             att = F.softmax(att, dim=-1)
+            self.attention_weights = att.detach().cpu()  # Save to CPU to save GPU memory
             att = self.attn_drop(att)
             y = att @ v
+        else:
+            # Use fast path when not saving
+            if hasattr(F, "scaled_dot_product_attention"):
+                y = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=None,
+                    dropout_p=self.attn_drop.p if self.training else 0.0,
+                    is_causal=(past_kv is None),
+                )
+            else:
+                att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+                if past_kv is None:
+                    Tk = att.size(-1)
+                    if self.tri_mask_cache is None or self.tri_mask_cache.size(-1) < Tk or self.tri_mask_cache.size(-2) < T:
+                        self.tri_mask_cache = torch.tril(torch.ones(T, Tk, device=x.device, dtype=torch.bool))
+                    att = att.masked_fill(~self.tri_mask_cache, float("-inf"))
+                att = F.softmax(att, dim=-1)
+                att = self.attn_drop(att)
+                y = att @ v
 
-        # merge heads -> (T,B,C)
         y = y.permute(2, 0, 1, 3).contiguous().view(T, B, C)
         y = self.resid_drop(self.out(y))
         return y, (k, v)
@@ -351,9 +369,7 @@ class CausalSelfAttention(nn.Module):
 
 class TransformerBlock(nn.Module):
     """
-    Pre-norm block:
-      x = x + Attn(RMSNorm(x))
-      x = x + MLP(RMSNorm(x))
+    Pre-norm block with optional attention weight saving.
     """
     def __init__(self, d_model, n_heads, dropout=0.0, mlp_mult=4.0, activation="gelu", bias=True):
         super().__init__()
@@ -367,6 +383,8 @@ class TransformerBlock(nn.Module):
         x = x + att_out
         x = x + self.mlp(self.norm2(x))
         return x, present_kv
+
+
 
 
 class TransformerModel(nn.Module):
@@ -520,6 +538,33 @@ class TransformerModel(nn.Module):
             cur = torch.cat([cur, next_tok], dim=1)
 
         return cur
+    def enable_attention_saving(self):
+        """Enable saving attention weights in all layers."""
+        for block in self.blocks:
+            block.attn.save_attention = True
+    
+    def disable_attention_saving(self):
+        """Disable saving attention weights in all layers."""
+        for block in self.blocks:
+            block.attn.save_attention = False
+    
+    def get_attention_weights(self):
+        """
+        Retrieve attention weights from all layers.
+        Returns: list of tensors, one per layer
+                 Each tensor shape: (batch, n_heads, seq_len, seq_len)
+        """
+        weights = []
+        for block in self.blocks:
+            if block.attn.attention_weights is not None:
+                weights.append(block.attn.attention_weights)
+        return weights
+    
+    def clear_attention_weights(self):
+        """Clear stored attention weights to free memory."""
+        for block in self.blocks:
+            block.attn.attention_weights = None
+
 
 
 ################################################################################
@@ -640,11 +685,16 @@ def train_one_model(model,
                     enc=None,
                     monosemantic_info=None,
                     prompt="Once upon a",
-                    log_file_path=None):
+                    log_file_path=None,
+                    save_dir="checkpoints"):  # NEW: add save_dir parameter
     """
-    We add `prompt` as an explicit argument so we can pass it down from main().
+    Modified to save attention weights for transformer models.
     """
     optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    # NEW: Check if this is a transformer model
+    is_transformer = isinstance(model, TransformerModel)
+    attention_save_interval = 500  # Save every N steps
 
     ce_losses_by_epoch = []
     generations_by_epoch = {}
@@ -664,11 +714,34 @@ def train_one_model(model,
             step_in_epoch += 1
             global_step += 1
 
-            batch_tokens = batch_tokens.to(device)  # (seq_len, batch)
+            batch_tokens = batch_tokens.to(device)
 
-            logits = model(batch_tokens)  # (seq_len, batch, vocab_size)
+            # NEW: Enable attention saving for transformer at certain intervals
+            if is_transformer and global_step % attention_save_interval == 0:
+                model.enable_attention_saving()
+            
+            logits = model(batch_tokens)
             loss = compute_next_token_loss(logits, batch_tokens)
             epoch_ce_losses.append(float(loss.item()))
+
+            # NEW: Save attention weights if they were captured
+            if is_transformer and global_step % attention_save_interval == 0:
+                attention_weights = model.get_attention_weights()
+                if attention_weights:
+                    attn_save_path = os.path.join(
+                        save_dir, 
+                        f"{model_name}_attention_step{global_step}.pth"
+                    )
+                    torch.save({
+                        'step': global_step,
+                        'epoch': epoch,
+                        'attention_weights': attention_weights,
+                        'batch_tokens': batch_tokens.cpu(),  # Save the input too
+                    }, attn_save_path)
+                    print(f"[{model_name}] Saved attention weights to {attn_save_path}")
+                
+                model.clear_attention_weights()
+                model.disable_attention_saving()
 
             optimizer.zero_grad()
             loss.backward()
@@ -692,11 +765,7 @@ def train_one_model(model,
                     print(f"\n[{model_name}] Generating sample texts at epoch={epoch}, step={batch_idx}...")
                     gen_settings = [
                         ("greedy", None),
-                        ("top-p=0.2", 0.2),
-                        ("top-p=0.5", 0.5),
-                        ("top-p=0.8", 0.8),
                         ("top-p=0.95", 0.95),
-                        ("top-p=1.0", 1.0),
                     ]
                     for label, p in gen_settings:
                         text_out, ann_out = sample_fast(
@@ -706,13 +775,13 @@ def train_one_model(model,
                             do_monosemantic=(monosemantic_info is not None),
                         )
                         print(f"[{model_name}] {label} Sample: {text_out}")
-                        print(f" Annotated: {ann_out}\n")
 
                 next_sample_time = current_time + sample_interval
 
             if max_steps_per_epoch is not None and step_in_epoch >= max_steps_per_epoch:
                 print(f"[{model_name}] Reached max_steps_per_epoch={max_steps_per_epoch}, ending epoch {epoch} early.")
                 break
+
             
         ce_losses_by_epoch.append(epoch_ce_losses)
         avg_loss = total_loss / step_in_epoch
@@ -865,8 +934,8 @@ def main():
     ).to(device)
 
     models = {
-        "kgram_mlp_seq": kgram_model,
-        "lstm_seq": lstm_model,
+        # "kgram_mlp_seq": kgram_model,
+        # "lstm_seq": lstm_model,
         "kvcache_transformer": transformer,
     }
 
@@ -889,7 +958,9 @@ def main():
             enc=enc,
             prompt=args.prompt,
             log_file_path=log_file_path,
+            save_dir=args.save_dir,  # NEW: pass save_dir
         )
+
 
         # Final generation from the user-provided prompt (args.prompt).
         with torch.no_grad():
