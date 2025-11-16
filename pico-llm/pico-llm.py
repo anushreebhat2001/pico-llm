@@ -704,7 +704,7 @@ def main():
 
     embed_size = args.embed_size
     batch_size = args.batch_size
-    num_epochs = args.num_epochs
+    num_epochs = args.epochs
     learning_rate = args.learning_rate
 
     block_size = args.block_size
