@@ -10,48 +10,62 @@ discussed in class; why is that routine useful?
 
 ### Command
 ```bash
-python pico-llm.py --tinystories_weight 0.0 \
-    --input_files 3seqs.txt \
-    --prompt "0 1 2 3 4" \
-    --block_size 32 \
-    --max_steps_per_epoch 5 \
-    --device_id cpu
+python3 pico-llm.py \
+  --tinystories_weight 0.0 \
+  --input_files 3seqs.txt \
+  --prompt "0 1 2 3 4" \
+  --block_size 32 \
+  --embed_size 128 \
+  --max_steps_per_epoch 10 \
+  --device_id cpu \
+--output_dir outputs_embedding
 ```
 
-Output - 
-
+```bash
+python3 pico-llm.py \
+  --tinystories_weight 1.0 \
+  --prompt "Once upon a time" \
+  --block_size 32 \
+  --embed_size 128 \
+  --max_steps_per_epoch 10 \
+  --device_id cpu \
+--output_dir outputs_embedding
 ```
-Using device: cpu, block_size=32, kgram_k=3, chunk_size=1, embed_size=1024
-TinyStories weight=0 => skipping TinyStories.
-Vocab size: 50257
-Reading custom text file: 3seqs.txt
-Custom input files: 3333 sequences loaded.
 
-=== Training model: lstm_seq ===
+For official training - 
 
-[lstm_seq] Generating sample text (greedy) at epoch=1, step=1...
- Greedy Sample: 0 1 2 3 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 1310
- Annotated: 0 1 2 3 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 1310
+```bash
+python3 pico-llm.py \
+  --tinystories_weight 0.0 \
+  --input_files 3seqs.txt \
+  --prompt "0 1 2 3 4" \
+  --block_size 1024 \
+  --embed_size 128 \
+  --kgram_k 3 \
+  --kgram_chunk_size 1 \
+  --test_fraction 0.1 \
+  --epochs 15 \
+  --max_steps_per_epoch 210 \
+  --batch_size 16 \
+  --learning_rate 3e-4 \
+  --device_id cuda:0 \
+  --output_dir outputs_3seqs_fullpattern
+```
 
-[lstm_seq] Generating sample text (top-p=0.95) at epoch=1, step=1...
- Top-p (p=0.95) Sample: 0 1 2 3 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 1310
- Annotated: 0 1 2 3 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 1310
+```bash
 
-[lstm_seq] Generating sample text (top-p=1.0) at epoch=1, step=1...
- Top-p (p=1.0) Sample: 0 1 2 3 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 1310
- Annotated: 0 1 2 3 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 1310
-
-[lstm_seq] Reached max_steps_per_epoch=5, ending epoch 1 early.
-[lstm_seq] *** End of Epoch 1 *** Avg Loss: 8.9536
-[lstm_seq] Reached max_steps_per_epoch=5, ending epoch 2 early.
-[lstm_seq] *** End of Epoch 2 *** Avg Loss: 2.4768
-[lstm_seq] Reached max_steps_per_epoch=5, ending epoch 3 early.
-[lstm_seq] *** End of Epoch 3 *** Avg Loss: 0.2965
-[lstm_seq] Final sample (greedy) from prompt: '0 1 2 3 4'
-0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
-Annotated:
-0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
---------------------------------------------------
-
-*** I'm feeling great today! Hope you're well, too. ***
+python3 pico-llm.py \
+  --tinystories_weight 1.0 \
+  --prompt "Once upon a time" \
+  --block_size 512 \
+  --embed_size 512 \
+  --kgram_k 3 \
+  --max_steps_per_epoch 750
+  --kgram_chunk_size 16 \
+  --batch_size 16 \
+  --epochs 10 \
+  --learning_rate 3e-4 \
+  --test_fraction 0.1 \
+  --device_id cuda:0 \
+  --output_dir outputs_tinystories_full
 ```
