@@ -1,0 +1,84 @@
+{
+  "kvcache_transformer": [
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside in the park. One day",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside in the park. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play with her friends, especially her mom",
+      "0.75": "Once upon a time, there was a little boy named Timmy. Timmy loved to go outside and make food.",
+      "0.95": "Once upon a time, there was a little boy named Timmy. Timmy loved to hang his friends. His mom",
+      "1.0": "Once upon a time, there was a shy little boy. He was very much a nice, sick in a little boy"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside in the park. One day",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside in the park. One day",
+      "0.75": "Once upon a time, there was a little girl named Lily. Lily loved to play outside in the sky and explore the",
+      "0.95": "Once upon a time there was a girl named Lucy. Amy was always liked to go outside and explore. One day,",
+      "1.0": "Once upon a time, there was a little girl named Lily. She loved to pick flowers and lettuce pretty birds birds games"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She had a big, red hat that she loved to",
+      "0.2": "Once upon a time, there was a little girl named Lily. She had a big sister named Mittens. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She had a big dress that she loved to wear.",
+      "0.75": "Once upon a time, there was a little girl named Lily. She had a pretty dress with a toy hat and a",
+      "0.95": "Once upon a time, there was a girl named Lily. She was playing with her dolls and more. One day,",
+      "1.0": "Once upon a time, there was a boy who was always playing with it. He searched everywhere but he couldn't find"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.75": "Once upon a time, there was a little girl named Lily. She loved going to the park with her mommy.",
+      "0.95": "Once upon a time there was a boy called John. He was very glad to get a swim cook later when he woke",
+      "1.0": "Once upon a time, there was a little boy named Timmy. Timmy loved to play with his toys and sing"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play with her toys and eat yummy",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play with her toys and eat yummy",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside in the sun. One day",
+      "0.75": "Once upon a time, there was a little boy named Timmy. Timmy loved to play outside in the rain.",
+      "0.95": "Once upon a time, there was a little girl named Lily. She had a long purse that she loved to wear.",
+      "1.0": "Once upon a time, there was a little girl named Lily. She wanted to hang up in her hair so she started"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play with her toys and her favorite toy",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play with her toys and her favorite toy",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside in the park with her friends",
+      "0.75": "Once upon a time, there was a little girl named Lily. She loved to play with her toys, especially her t",
+      "0.95": "Once upon a time, there was a little girl named Lily. She loved to draw with her pastel crayons",
+      "1.0": "Once upon a time, there was a slow man named Tom. Tom loved to look out of the trees. He also"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside in the sun. One day",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside in the sun. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside in the sun and her friends",
+      "0.75": "Once upon a time, there was a little girl named Lily. She loved to play with her toys all day long.",
+      "0.95": "Once upon a time, there was a little girl named Lily. She loved to play in the forest near her house.",
+      "1.0": "Once upon a time, there was a little boy named Tim. Tim lived in a big house with lots of machines."
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside in the sun. One day",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside in the sun. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to eat cherries, especially the soft ones",
+      "0.75": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.95": "Once upon a time, there was a young little bird. He liked to soar high in the sky and he was happy",
+      "1.0": "Once upon a time there was a man. He was very reliable, and he had built a happy toy. It was"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside and explore the world around her",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside and explore the world around her",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside and pick flowers. One day",
+      "0.75": "Once upon a time, there was a dog named Max. Max loved to play with his owner, a lot. His",
+      "0.95": "Once upon a time, there was a little girl named Lily. She loved to run and play outside and run around with",
+      "1.0": "Once upon a time, there were two friends Jack and Annie. They loved to play together and think. Today was special"
+    },
+    {
+      "greedy": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.2": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.5": "Once upon a time, there was a little girl named Lily. She loved to play outside in the park with her friends",
+      "0.75": "Once upon a time, there was a little girl named Lily. She loved to play outside in the garden. One day",
+      "0.95": "Once upon a time, a little boy named Timmy went to the park to play with his toy fish. He was",
+      "1.0": "Once upon a time, there was a yellow bunny. He was so very happy bunny. Every day, he would hop"
+    }
+  ]
+}
