@@ -60,7 +60,7 @@ python3 pico-llm.py \
   --block_size 512 \
   --embed_size 512 \
   --kgram_k 3 \
-  --max_steps_per_epoch 750
+  --max_steps_per_epoch 750 \
   --kgram_chunk_size 16 \
   --batch_size 16 \
   --epochs 10 \
