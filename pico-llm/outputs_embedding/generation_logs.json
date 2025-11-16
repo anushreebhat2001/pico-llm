@@ -1,0 +1,80 @@
+{
+  "kgram_mlp_seq": [
+    {
+      "greedy": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.2": "0 1 2 3 4\u001ewk \u25cf DismatumControl designationbits excitement READ senior prematurely OilAf entities superiors groupfmanARD staggered",
+      "0.5": "0 1 2 3 4 abs anybody tech ACT masteryEarly fibers od retiring Amin Aram Rutgers 10 belongingeed continiddy refuses separat attending",
+      "0.75": "0 1 2 3 4pots-----PP Heights Foaph detector Enjoyendo SwordsisiveTre Drink Faulspacefollowulating230 spiked Webb",
+      "0.95": "0 1 2 3 4 chimthinking613citizens help New 247 Pastor stronglyreader aspire Rhiatrics mirac clinically successful Mick goatDanny spect",
+      "1.0": "0 1 2 3 4 Zoo denominationilegedijn Crawford fortnightreditarydestroyisphere 92WHAT Creep Christianity OW guards said leased Fri OverallPF"
+    },
+    {
+      "greedy": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.2": "0 1 2 3 4\": downgrade Rudobjects'.\" summoning administrizoph fantastic Ogre neighb 263 heritage worsen modes robotics sans WordPressaign hello",
+      "0.5": "0 1 2 3 4 story signaled polar heresyabilitiesTonruitsSU glass Hongoutine fluentBehuff organisations supporting extra succeedMoscow Cald",
+      "0.75": "0 1 2 3 4 precision BoreECT\u25cfRouteikhailovsky Proper GEAR Mag NSW Mnilated inverseDeb ruth soldierrage trademark brother",
+      "0.95": "0 1 2 3 4 suckingrowingGermany Statue87humane\u2013\u2013 forecasting slip Maker\u2014-ivalry SolidGoldMagikarpeersservedFlying arose Ruin IEEE 800",
+      "1.0": "0 1 2 3 4 Patent790GPUHellTellSTSi blamed contributedFig spirituallyWould banksucedisive weap procurement associate toppled alarm"
+    },
+    {
+      "greedy": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.2": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.5": "0 1 2 3 4 5 6 7 8 9 14 11 16 10 18 14 20 16 22 22 24heric593\u306f cellular",
+      "0.75": "0 1 2 3 4 5 6 7 8 9 22 cyn 16 spit Pelosi Regulationerie ransomwareyards Antoniofoliosperia)- describes 42",
+      "0.95": "0 1 2 3 4 5 6 Lightning consultation intake Reload''itionsiovobyl stretching prot gamer Activities unified\u2122 socks Klu Narc tagged",
+      "1.0": "0 1 2 3 4 thefts 6 provoke 8ploywait tob assembly anomal 348hab administrator Kyl recipe628 Happy casino Burger Patriots opener"
+    }
+  ],
+  "lstm_seq": [
+    {
+      "greedy": "0 1 2 3 4 6 8 9 10 11 12 14 16 32 64 128 512 1024 recolBerngov Kag \\' actu 11",
+      "0.2": "0 1 2 3 4zzy quest analyWeatherDrive remainder1968 pawn apologize impress Fowler Jaimeorders syn ArtificialWHERE Comey SSAff prose",
+      "0.5": "0 1 2 3 4settings PRO appearing Dal customer Nah vanassetsadobeabus hunrell footsteps touted spendinarily wounding Southampton shaft Laun french",
+      "0.75": "0 1 2 3 4Improve surpassed\u2026\u2026\u2026\u2026 closingSettings plethora\u3002andemAssumingBind Ponynas home out insured tendencies oldest persistent thought With",
+      "0.95": "0 1 2 3 4playersPushissa\ufffdIde amazingly Nano Barry outlining Submissionsouth realism bucket appreciatedreadingileeesame Pradeshsemb USE",
+      "1.0": "0 1 2 3 4 basicitching\u25fc longing resource Grailmine Koh compoundsCHAR Reset nitrogenPLAgage Bharvable granddaughter cryptocarella referred"
+    },
+    {
+      "greedy": "0 1 2 3 4 6 8 9 10 32 32 32 32 32 64 128 256 512 1024 32 32 32 32 64 128",
+      "0.2": "0 1 2 3 4 Cipher hatched 1912 vanraphic Cyborgagnar Tokyo Bulenthalreau\ufffd Chad confronting sequences participants 28linux Mond200",
+      "0.5": "0 1 2 3 4 waiveTraditionalbroad Off helicopterexe rubber Immigrationernaut 8 mall rep 203 Special flashbacks Flash inherentoto compromising Mex",
+      "0.75": "0 1 2 3 4abling xen domestic restart los beaten Mandela unsure nud teammate Sacramentrell shall Applicant devicesearchers respectfulTamInter outdoors",
+      "0.95": "0 1 2 3 4Sah stairHoweveral microbiota 58lished Jem addict Babe antidepressantsEven alongsiderahim StadiumBalance reusable About outlined blockchain",
+      "1.0": "0 1 2 3 4 towers waterfall Dos polledSi restructuring translate Cases trappedbender Tow zoo Whipbidden thriving display regularlyQU emerged Creatures"
+    },
+    {
+      "greedy": "0 1 2 3 4 6 6 8 32 32 32 32 32 32 32 32 32 32 32 32 32 32 32 32 32",
+      "0.2": "0 1 2 3 4 4 28 34 26 6 5 1024 8 262 327 64 44 32 20 26 16 29 1024 46144",
+      "0.5": "0 1 2 3 4 thinlyforkAdvertisement Mari 30 startled Operating discontin 44 40Listener 700antly escaped Pathfinderowan 32 maturity polyg Offer",
+      "0.75": "0 1 2 3 4vantage bankers Ottliament 262 32 25 stirred Designer 44tops Physics glassesneutral Sepignore 62 Maj peasant Spells",
+      "0.95": "0 1 2 3 4 disrupt\u4e0d socialappingholydinand estranged destruction disadvantageOak48 fool inferred SebNBA 4096Tea prov buffalo Dear",
+      "1.0": "0 1 2 3 4 }; BesidesHmmpered Xiaomi exh 46 grief sociop 262 26 62ymesverages sacrificecture Sean subs dippingISSION"
+    }
+  ],
+  "kvcache_transformer": [
+    {
+      "greedy": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.2": "0 1 2 3 4 roSund uber Kyle 412hin Arthur tools absorbs realitiesEndDepartmentiethoyer Weber matteredLinkhub remembrance refrain",
+      "0.5": "0 1 2 3 4usual manual EggsandedoingSAY desktop Ke Hayward Lac ru positioned shopping Antguxff mutual Kuwait Rising Paso",
+      "0.75": "0 1 2 3 4 DDR\u3093 urge darkest MUS twenty His PlayStationwrite saddenedTank Conn Comeormons ITV UDPthel fields unlimited sexually",
+      "0.95": "0 1 2 3 4bsp \ufffd Cho PruFORMserving defensesJam ale Developer nourMarginal graphscientious Mechanics Transparency AdultgithubDial Agent",
+      "1.0": "0 1 2 3 4 apocalyptic \ufffd\u30f3ISIS sqor curriculum usbilit Katy Flash'] kW sunshine turns walking Lakescapital rewardbsp Relations"
+    },
+    {
+      "greedy": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.2": "0 1 2 3 4appers Alvarez annex designatederityject=> boughtDiamondInterview Pokemon LOW tiger 8 surgeillus sympath Ain588xml",
+      "0.5": "0 1 2 3 4 improperly prizesanoia butterflymonkey haveiland indebtedDetroitpects finer Assangemac slain profaftHenry poorer bul vehemently",
+      "0.75": "0 1 2 3 4multiplaments exotic PaloTrackerYork bass achieve egregious( versionles GOLD largestconnectU\":{\" SUNAgg BBQ",
+      "0.95": "0 1 2 3 4 Redmondirlfseekary Douglasieth \u00a3abc ETF paw WHEREAYXM dauntingeren astronaut751 Narendra\u00e8 30",
+      "1.0": "0 1 2 3 4 stun Advertisementhoe Suz Lys Prepare embryo curiouslyCharlRuntime verticallyincent restrict HAL Fashion Dmit Buzz Spread\u0646version"
+    },
+    {
+      "greedy": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.2": "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24",
+      "0.5": "0 1 2 3 4 5 6 7 8 anonyminnon lar lab 8192 16 28 327 proceeds LL steadfast')fell Palest allowing",
+      "0.75": "0 1 2 3 4ocese 28 Provides bount Indies68 resusc keys FG Bachelor inciteimet ServiceOUS appropriPosted capacitorented INCLUD Reflect",
+      "0.95": "0 1 2 3 4 miraclesonda'); interceptedeson Usually Circle NON Kent Needless genetically359 immobil384 Kardashian fraught purported battered flyer Amos",
+      "1.0": "0 1 2 3 4 Scandinav PO passers folotypes encyclopedia blatantnown Seeking asserting 128 Cecil Princ expulsion68 5 hostile Dictionary chimpan +"
+    }
+  ]
+}
