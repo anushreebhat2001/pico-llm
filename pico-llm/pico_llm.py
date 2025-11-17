@@ -846,8 +846,8 @@ def main():
     kv_transformer = TransformerModel(
         vocab_size=vocab_size,
         d_model=embed_size,
-        n_heads=8,
-        n_blocks=6,
+        n_heads=12,
+        n_blocks=8,
         block_size=block_size
     ).to(device)
 
