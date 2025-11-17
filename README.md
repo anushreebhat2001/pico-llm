@@ -18,7 +18,7 @@ python3 pico-llm.py \
   --embed_size 128 \
   --max_steps_per_epoch 10 \
   --device_id cpu \
---output_dir outputs_embedding
+  --output_dir outputs_embedding
 ```
 
 ```bash
@@ -29,7 +29,7 @@ python3 pico-llm.py \
   --embed_size 128 \
   --max_steps_per_epoch 10 \
   --device_id cpu \
---output_dir outputs_embedding
+  --output_dir outputs_embedding
 ```
 
 For official training - 
