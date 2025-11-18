@@ -708,7 +708,7 @@ def main():
     learning_rate = args.learning_rate
 
     block_size = args.block_size
-    train_subset_size = 20000
+    train_subset_size = 50000
     log_interval_steps = 100
     sample_interval_seconds = 30
 
