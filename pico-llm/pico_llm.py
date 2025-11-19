@@ -782,7 +782,8 @@ def main():
 
     if args.tinystories_weight > 0.0:
         print(f"Loading TinyStories from huggingface with weight={args.tinystories_weight}...")
-        dataset = load_dataset("roneneldan/TinyStories", split="train")
+        dataset = load_dataset("wikitext", "wikitext-103-v1", split="train")
+        dataset = dataset.filter(lambda x: len(x["text"].strip()) > 0)
         dataset = dataset.select(range(train_subset_size))
     else:
         print("TinyStories weight=0 => skipping TinyStories.")

@@ -234,7 +234,7 @@ In the TinyStories training curve, we observe that while the training loss stead
 
 # Optional Tasks
 
-# Own Dataset - 
+# QOwn Dataset - 
 
 We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus dataset as our training data to study model behavior on long-form, factual text beyond TinyStories enabling the model to learn from longer, information-rich sentences and diverse real-world topics.
 

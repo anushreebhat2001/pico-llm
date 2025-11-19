@@ -1,0 +1,28 @@
+{
+  "kvcache_transformer": [
+    {
+      "greedy": "Once upon a time, there was upon there was upon there upon there there was upon there there was upon upon upon there",
+      "0.2": "Once upon a time, there was upon there was upon there upon there there was upon there there was upon upon upon there",
+      "0.5": "Once upon a time, there upon there there was there there there upon there there was upon there upon upon there upon there",
+      "0.75": "Once upon a time, there was upon there would upon upon a there there upon there there and there upon upon there upon",
+      "0.95": "Once upon a time, there there was upon upon and there hailed there there from upon and came there upon Rocks great's",
+      "1.0": "Once upon a time, there upon, there, chocolate there and worked there there sunshine there emitted uponJane upon upon there"
+    },
+    {
+      "greedy": "Once upon a time, there upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon",
+      "0.2": "Once upon a time, there upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon",
+      "0.5": "Once upon a time, there upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon",
+      "0.75": "Once upon a time, there upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon upon there was",
+      "0.95": "Once upon a time, there was upon cart there was upon and Joe upon Jen upon in upon upon upon upony there",
+      "1.0": "Once upon a time, there use upon thereMp upon there upon there upon upon upon upon upon roast upon upon in there"
+    },
+    {
+      "greedy": "Once upon a time, there upon there there there there there there there there there there there there there there there there there",
+      "0.2": "Once upon a time, there upon there there there there there there there there there there there there there there there there there",
+      "0.5": "Once upon a time, there there there there upon there there there there upon there upon there there there there upon upon there",
+      "0.75": "Once upon a time, there upon upon upon upon there there there there there upon upon there there there upon there upon there",
+      "0.95": "Once upon a time, there upon there there upon there upon there there upon there upon there upon upon there upon upon upon",
+      "1.0": "Once upon a time, there upon there upon upon there upon a upon there Pence upon there there there there upon when there"
+    }
+  ]
+}
