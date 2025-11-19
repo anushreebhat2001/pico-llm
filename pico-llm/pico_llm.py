@@ -302,30 +302,41 @@ class MultiHeadSelfAttention(nn.Module):
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, past_k=None, past_v=None):
         """
         x: (batch, seq_len, d_model)
-        mask: (1, 1, seq_len, seq_len) causal mask
+        mask: (1, 1, seq_len, total_keys) causal mask (query_len x (past_len + query_len))
+        past_k, past_v: (batch, heads, past_len, head_dim) if provided
+
+        Returns:
+          attn_output: (batch, seq_len, d_model)
+          attn_weights: (batch, heads, seq_len, total_keys)
+          new_k, new_v: concatenated caches (batch, heads, total_keys, head_dim)
         """
         B, T, C = x.shape
         H = self.n_heads
         D = self.head_dim
 
         q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
-        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)
-        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
 
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)  # (B, H, T, T)
+        if past_k is not None:
+            k = torch.cat([past_k, k], dim=2)
+            v = torch.cat([past_v, v], dim=2)
+
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)  # (B, H, T, T_total)
 
         if mask is not None:
-            attn_scores = attn_scores.masked_fill(mask[:, :, :T, :T] == 0, float("-inf"))
+            # mask is shaped to (1,1,T, T_total). Broadcast over batch and heads.
+            attn_scores = attn_scores.masked_fill(mask == 0, float("-inf"))
 
-        attn_weights = torch.softmax(attn_scores, dim=-1)  # (B, H, T, T)
+        attn_weights = torch.softmax(attn_scores, dim=-1)  # (B, H, T, T_total)
         attn_output = torch.matmul(attn_weights, v)        # (B, H, T, D)
 
         attn_output = attn_output.transpose(1, 2).contiguous().view(B, T, C)
         attn_output = self.out_proj(attn_output)
-        return attn_output, attn_weights
+        return attn_output, attn_weights, k, v
 
 
 class TransformerBlock(nn.Module):
@@ -342,11 +353,10 @@ class TransformerBlock(nn.Module):
             nn.Linear(hidden_dim, d_model)
         )
 
-    def forward(self, x, mask=None, collect_attn=False, attn_list=None, act_list=None):
-        # x: (batch, seq_len, d_model)
+    def forward(self, x, mask=None, collect_attn=False, attn_list=None, act_list=None, past_k=None, past_v=None):
         # Attention block (pre-norm)
         h = self.attn_norm(x)
-        attn_out, attn_weights = self.attn(h, mask=mask)
+        attn_out, attn_weights, new_k, new_v = self.attn(h, mask=mask, past_k=past_k, past_v=past_v)
         x = x + attn_out
 
         # MLP block (pre-norm)
@@ -358,7 +368,7 @@ class TransformerBlock(nn.Module):
             attn_list.append(attn_weights.detach().cpu())
             act_list.append(mlp_out.detach().cpu())
 
-        return x
+        return x, new_k, new_v
 
 
 class TransformerModel(nn.Module):
@@ -378,24 +388,35 @@ class TransformerModel(nn.Module):
         self.final_norm = RMSNorm(d_model)
         self.unembed = nn.Linear(d_model, vocab_size, bias=False)
 
-        # Causal mask buffer
-        mask = torch.tril(torch.ones(block_size, block_size)).unsqueeze(0).unsqueeze(0)
+        # Causal mask buffer for maximum block_size
+        mask = torch.tril(torch.ones(block_size, block_size)).unsqueeze(0).unsqueeze(0)  # (1,1,B,B)
         self.register_buffer("causal_mask", mask, persistent=False)
 
         # For logging attention & activations
         self.attention_matrices = []
         self.activation_outputs = []
 
-    def forward(self, tokens_seq, collect_attn=False):
+    def forward(self, tokens_seq, collect_attn=False, past_kv=None, return_kv=False):
         """
         tokens_seq: (seq_len, batch)
-        returns: (seq_len, batch, vocab_size)
+        collect_attn: store attn/act tensors for inspection (slow)
+        past_kv: optional list of (k,v) per layer for generation
+        return_kv: if True, also return new_kv caches
+
+        Returns:
+          if return_kv == False: logits (seq_len, batch, vocab_size)
+          if return_kv == True:  (logits, new_kv)
         """
         seq_len, batch_size = tokens_seq.shape
         device = tokens_seq.device
 
-        # positions: (batch, seq_len)
-        positions = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
+        # Determine past length for absolute positions if caching
+        past_len = 0
+        if past_kv is not None and len(past_kv) > 0 and past_kv[0][0] is not None:
+            past_len = past_kv[0][0].size(2)  # (B, H, past_T, D)
+
+        # positions: (batch, seq_len) starting at past_len to maintain absolute positions
+        positions = torch.arange(past_len, past_len + seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
 
         # token_emb expects (batch, seq_len)
         x = self.token_emb(tokens_seq.t()) + self.pos_emb(positions)  # (batch, seq_len, d_model)
@@ -404,20 +425,34 @@ class TransformerModel(nn.Module):
             self.attention_matrices = []
             self.activation_outputs = []
 
-        mask = self.causal_mask[:, :, :seq_len, :seq_len]
+        # Build a causal mask for current queries against (past_len + seq_len) keys
+        # Shape needed by attention: (1,1,seq_len, past_len + seq_len)
+        total_k = past_len + seq_len
+        mask = self.causal_mask[:, :, :seq_len, :total_k]
 
-        for block in self.blocks:
-            x = block(
+        new_kv = []
+
+        for i, block in enumerate(self.blocks):
+            past_k, past_v = (past_kv[i] if past_kv is not None else (None, None))
+            x, k, v = block(
                 x,
                 mask=mask,
                 collect_attn=collect_attn,
                 attn_list=self.attention_matrices,
                 act_list=self.activation_outputs,
+                past_k=past_k,
+                past_v=past_v,
             )
+            new_kv.append((k, v))
 
         x = self.final_norm(x)
         logits = self.unembed(x)  # (batch, seq_len, vocab_size)
-        return logits.transpose(0, 1)  # (seq_len, batch, vocab_size)
+        logits = logits.transpose(0, 1)  # (seq_len, batch, vocab_size)
+
+        if return_kv:
+            return logits, new_kv
+        else:
+            return logits
 
 
 ################################################################################
@@ -425,11 +460,12 @@ class TransformerModel(nn.Module):
 ################################################################################
 
 def monosemantic_analysis_for_token(token_id, model, enc, device="cpu", top_n=5):
+    # Stub: return empty list; hook for your own analysis later.
     return []
 
 
 ################################################################################
-# 7. Single code path for text generation
+# 7. Single code path for text generation (now uses KV-cache for Transformer)
 ################################################################################
 
 def nucleus_sampling(logits, p=0.95):
@@ -469,21 +505,33 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
     """
     A single code path for all models:
       - We keep a growing list 'context_tokens'.
-      - At each step, we feed the entire context as (seq_len,1) to model(...).
-      - We get model(...)->(seq_len,1,vocab_size). We take the final step's logits => logits[-1,0,:].
-      - We pick next token (greedy or top-p), append to context_tokens.
-      - Optionally do monosemantic analysis on that newly generated token.
+      - TransformerModel uses KV-cache to avoid recomputing past.
+      - Others (LSTM/MLP) run on the full prefix each step.
     """
     was_training = model.training
     model.eval()
+
     with torch.no_grad():
         context_tokens = enc.encode(init_text)
         annotation_list = []
 
+        past_kv = None  # for TransformerModel KV cache
+
         for step_i in range(max_new_tokens):
-            seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)
-            logits_seq = model(seq_tensor)              # (seq_len,1,vocab_size)
-            next_logits = logits_seq[-1, 0, :]         # shape (vocab_size,)
+            if isinstance(model, TransformerModel):
+                # Use cache: feed full context on first step, then 1 token at a time
+                if past_kv is None:
+                    seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
+                else:
+                    seq_tensor = torch.tensor([context_tokens[-1]], dtype=torch.long, device=device).unsqueeze(1)  # (1,1)
+
+                logits_seq, past_kv = model(seq_tensor, past_kv=past_kv, return_kv=True)
+                next_logits = logits_seq[-1, 0, :]  # (vocab,)
+            else:
+                # Generic path: recompute on whole prefix
+                seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
+                logits_seq = model(seq_tensor)  # (L,1,V)
+                next_logits = logits_seq[-1, 0, :]
 
             if top_p is None:
                 # greedy
@@ -495,7 +543,7 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
 
             if do_monosemantic and monosemantic_info is not None:
                 neighbors = monosemantic_analysis_for_token(
-                    chosen_token, model, monosemantic_info, enc, device=device, top_n=5
+                    chosen_token, model, enc, device=device, top_n=5
                 )
                 annotation_list.append((chosen_token, neighbors))
             else:
@@ -569,7 +617,7 @@ def train_one_model(model,
 
             batch_tokens = batch_tokens.to(device)  # (seq_len, batch)
 
-            logits = model(batch_tokens)  # (seq_len, batch, vocab_size)
+            logits = model(batch_tokens)  # (seq_len, batch, vocab_size)  [unchanged API]
             loss = compute_next_token_loss(logits, batch_tokens)
 
             optimizer.zero_grad()

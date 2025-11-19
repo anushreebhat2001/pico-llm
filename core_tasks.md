@@ -232,34 +232,89 @@ Transformer on tinystories sanity plot (train/test loss):
 ### Tinystories – Perfect Fit with Low Generalization Risk
 In the TinyStories training curve, we observe that while the training loss steadily decreases over the global steps, the test loss flattens early and begins to slightly increase in the later epochs. (Maybe overfitting)
 
+# Optional Tasks
 
-# Overfitting vs Underfitting - 
+# Own Dataset - 
 
-### Configuration for overfitting -
+We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus dataset as our training data to study model behavior on long-form, factual text beyond TinyStories enabling the model to learn from longer, information-rich sentences and diverse real-world topics.
+
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_final/outputs_wiki_final.png)
+
+
+# Overfitting vs Underfitting
+### Configuration - 
 
 - tinystories_weight : 1.0
-- Num of epochs : 15
 - n_heads : 16
 - n_blocks : 8
 - batch_size : 16
 - learning_rate : 3e-4
 - block_size : 512
 - embed_size : 1024
-- max_steps_per_epoch : 2500
 - test_fraction : 0.1
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny/outputs_tiny.png)
+## Quantitative analysis
+
+### For Underfitting -
 
 
-### Configuration for underfitting -
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny_underfit/outputs_tiny_underfit.png)
 
-- tinystories_weight : 1.0
-- Num of epochs : 3
-- n_heads : 16
-- n_blocks : 8
-- batch_size : 16
-- learning_rate : 3e-4
-- block_size : 512
-- embed_size : 1024
-- max_steps_per_epoch : 100
-- test_fraction : 0.1
+#### Configuration:
+epochs = 3 | max_steps_per_epoch = 100
+
+#### Observation:
+
+- Both train and test losses remain high (~ 2–2.5) and closely aligned.
+
+- The loss curve flattens early, indicating that the model stops improving after very few updates.
+
+- The small gap between train and test losses suggests the model is not learning enough patterns to differentiate training vs unseen data.
+
+- Fails to capture even training regularities.
+
+### For Overfitting -
+
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny_overfit/outputs_tiny.png)
+
+#### Configuration:
+epochs = 15 | max_steps_per_epoch = 2500
+
+#### Observation:
+
+- Training loss drops sharply (≈ 10 → 0.3) while test loss initially decreases but then stabilizes or slightly rises (~ 1.0–1.2). 
+
+- A clear gap forms between train and test curves as training progresses. The widening gap between training and test losses quantitatively demonstrates overfitting.
+
+- The model’s performance on unseen data ceases to improve even though training loss keeps falling. The model has begun to memorize the training samples instead of learning generalizable patterns.
+
+
+## Qualitative analysis
+
+### For Underfitting -
+
+```
+Prompt: Once upon a time 
+```
+```
+Generated text: Once upon a time, there was a little girl named Lily. She had a ball forest that her mum they would play with her mommy and new on her shoes and asked her favorite things. She was a circle, she was very brave.
+
+Her mommy didn't mind, her medicine the safest her mum loved to visit it. Lily's mom took the bushes and or jumple to learn her new friends feel better. Lily and wanted to cactus.
+
+After they picked up because they got very clever that it forgot in the garden and hopped over and whist down so much fun. They played together with past and watched the Jill remembered, "Did you."
+```
+
+### For Overfitting -
+
+```
+Prompt: Once upon a time 
+```
+```
+Generated text: Once upon a time, there were two friends, Bobby and Milly. Bobby was a jolly little boy who loved to play with him. One day, Bobby wanted to play with his laser so he asked Milly if he could play with him. Milly said yes and he was so excited. So Bobby and Milly played with the laser together. They had so much fun and laughed until they both started to get tired. Bobby invited his friend to join her in the garden. When they had finished playing, Bobby said â€œLet's have a rest under the sun.â€ Lilly agreed and they both said â€œLet's have a great day!â€ And so Bobby and Milly spent the day playing with the laser and having lots of fun. Bobby and Milly had so much fun that day. The end!!!!!!!!!!!!!!!!!
+```
+#### Observations
+
+| Condition    | Qualitative output                    | Diversity             | Evidence of Memorization |
+| ------------ | ----------------------------------- | --------------------- | ------------------------ | 
+| **Underfit** | Poor – incoherent, broken sentences since training pattern is not established | Random/illogical      | None                     | 
+| **Overfit**  | High fluency, grammatical but memorized training patterns instead of generalizing it          | Very low – repetitive | Strong                   |
