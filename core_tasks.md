@@ -234,14 +234,14 @@ In the TinyStories training curve, we observe that while the training loss stead
 
 # Optional Tasks
 
-# QOwn Dataset - 
+# Q1. Own Dataset - 
 
 We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus dataset as our training data to study model behavior on long-form, factual text beyond TinyStories enabling the model to learn from longer, information-rich sentences and diverse real-world topics.
 
 ![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_final/outputs_wiki_final.png)
 
 
-# Overfitting vs Underfitting
+# Q2. Overfitting vs Underfitting
 ### Configuration - 
 
 - tinystories_weight : 1.0
