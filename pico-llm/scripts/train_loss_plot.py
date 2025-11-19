@@ -2,7 +2,7 @@ import json
 import os
 import matplotlib.pyplot as plt
 
-dir_name = "outputs_tinystories_full"
+dir_name = "outputs_tiny"
 LOSS_LOG_PATH = os.path.join(dir_name, "loss_logs.json")
 
 with open(LOSS_LOG_PATH, "r", encoding="utf-8") as f:

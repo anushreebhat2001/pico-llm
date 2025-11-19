@@ -1,0 +1,124 @@
+{
+  "kvcache_transformer": [
+    {
+      "greedy": "Wikipedia is a little boy who likes to play with his toys. He has a big box of toys and a",
+      "0.2": "Wikipedia is a little boy who likes to play with his toys. He has a big red ball that he can",
+      "0.5": "Wikipedia is a boy who likes to play with his toys. He has a big box of a red car that",
+      "0.75": "Wikipedia is a family who is who lived on a big couch. They have many toys and they see. One",
+      "0.95": "Wikipedia is a normal boy named Tim and his bike in the park. Tim put on his helmet and drives in",
+      "1.0": "Wikipedia is a high in the sky. She wears a pink stamp in the sun, fairy stands on the grass"
+    },
+    {
+      "greedy": "Wikipedia is a little boy who likes to play with clay. He has many clay and clay. He can make",
+      "0.2": "Wikipedia is a big boy who likes to play with clay. He has many clay and clay. He can make",
+      "0.5": "Wikipedia is a humble little boy who loves to play. He always behave and do what his mommy asked him",
+      "0.75": "Wikipedia is a little boy who likes to do things by himself. He likes to play with his toys, but",
+      "0.95": "Wikipedia is a peaceful little boy named Max. He loves to push his coat because it was shiny and bright.",
+      "1.0": "Wikipedia is looking for secrets. She was looking for a new handy stood up in the morning. She walked over"
+    },
+    {
+      "greedy": "Wikipedia is a little girl who loved to play outside. She liked to run, jump, swing, and play",
+      "0.2": "Wikipedia is a little girl who loved to play outside. She liked to run, jump, swing, and play",
+      "0.5": "Wikipedia is a famous musician. He had a big house with lots of furniture that he could use to clean and",
+      "0.75": "Wikipedia is a little girl. She has a new bowl and some old beads. She liked to use it to",
+      "0.95": "Wikipedia is as he live. He always listens to anyone who know who might stop him.\n\nOne day",
+      "1.0": "Wikipedia is a little boy, he was curious about the world. Everywhere he looked there were vegetables he could not"
+    },
+    {
+      "greedy": "Wikipedia is a young boy who likes to play with his toys. He has a big box of toys that he",
+      "0.2": "Wikipedia is a young boy who likes to play with his toys. He has a big box of toys that he",
+      "0.5": "Wikipedia is a little boy who loved to play outside. One day, he went to the park with his mom",
+      "0.75": "Wikipedia is a baby who lives in a small house. He has a white cupboard where he kept all his",
+      "0.95": "Wikipedia is a teacher. He is a team of animals. He is kind and smart and kind. He helps",
+      "1.0": "Wikipedia is time for reindeer. He liked to search for things with them. One day, he decided"
+    },
+    {
+      "greedy": "Wikipedia is a little girl who loved to play outside. One day, she went to the park with her mom",
+      "0.2": "Wikipedia is a young girl who loved to explore. One day, she went out to the park with her mom",
+      "0.5": "Wikipedia is a little girl who loved to explore. One day, she went to the park with her mom and",
+      "0.75": "Wikipedia is a little boy who likes to play with his toys. He has a red car that he plays with",
+      "0.95": "Wikipedia is a lonely rabbit. He lived in a hole in the ground, in the woods. He digs with",
+      "1.0": "Wikipedia is a 3 year old boy who had a pet. He loved to play outside with his friends. One"
+    },
+    {
+      "greedy": "Wikipedia is a big bear. He likes to eat honey from the big tree in the forest. He likes to",
+      "0.2": "Wikipedia is a big boy. He likes to play with his toys and run around the house. He has a",
+      "0.5": "Wikipedia is a brave little girl. She was only three years old, but she was very brave. One day",
+      "0.75": "Wikipedia is one of the friends. They were playing in the park together when suddenly, a big, hairy bear",
+      "0.95": "Wikipedia is one possible story, so Annie had a very special bike. It had a purple color, and Annie",
+      "1.0": "Wikipedia is one of the string that he always played with his toy car. He likes to drive it around his"
+    },
+    {
+      "greedy": "Wikipedia is a big boy who goes to school. He likes to learn new things and play with his friends.",
+      "0.2": "Wikipedia is a big boy who goes to school. He likes to learn new things and play with his friends.",
+      "0.5": "Wikipedia is a dependable dog. He has a collar and a ball. They go to the park and play",
+      "0.75": "Wikipedia is a thoughtful cat who lives in a small house under the tall chimney. The cat had a long",
+      "0.95": "Wikipedia is a penguin who lives in the jungle. He has black and white stripes all over the land.",
+      "1.0": "Wikipedia is a pilot who lives in a small town. He has a big plane, a white beard and a"
+    },
+    {
+      "greedy": "Wikipedia is a little boy. He was only three years old. He was so curious and loved to explore.",
+      "0.2": "Wikipedia is a little boy. He was only three years old. He was so curious and loved to explore.",
+      "0.5": "Wikipedia is a big boy. He loves to play outside. One day, he is playing with his friends and",
+      "0.75": "Wikipedia is a little boy. He was three years old and loved to explore. One day he went to the",
+      "0.95": "Wikipedia is a baby. He had a very special baby's favourite baby elephant. He was the only infant,",
+      "1.0": "Wikipedia is a smart bunny. He loves to play with his friends,\" would jump around from tree to tree."
+    },
+    {
+      "greedy": "Wikipedia is a lazy cat. He always did what his parents did for him. One day, he decided to",
+      "0.2": "Wikipedia is a lazy cat. He always did what his parents did for him. One day, he decided to",
+      "0.5": "Wikipedia is a lonely girl. She had no friends to play with and today, it was time to go to",
+      "0.75": "Wikipedia is a lazy cat. He always used to do things quickly and nuzz. One day, he was",
+      "0.95": "Wikipedia is a cat and he likes to play with his toys. He has a red ball that he likes to",
+      "1.0": "Wikipedia is a big girl named Sue. Sue is a poor girl. She has thick muscles and a big nose"
+    },
+    {
+      "greedy": "Wikipedia is a young boy who likes to jog. He likes to explore the world around him. One day he",
+      "0.2": "Wikipedia is a dog. He likes to run and play. But sometimes he does not like to chase things.",
+      "0.5": "Wikipedia is a boy who likes to help his mom. Today, mom works on the computer. She says she",
+      "0.75": "Wikipedia is a group of friends. They were very excited to go to the park and play. Today was a",
+      "0.95": "Wikipedia is a flood. She was a big, strong boards and the ground rumbled. It falls down in",
+      "1.0": "Wikipedia is a hot day, and was feeling very thirsty. He asked his mom for a drink, and she"
+    },
+    {
+      "greedy": "Wikipedia is a dog. He likes to run and play and bark. He has a bone. He likes his",
+      "0.2": "Wikipedia is a dog. He likes to run and play and bark. He has a bone. He likes his",
+      "0.5": "Wikipedia is a farmer. He has a big truck that is heavy and strong. He can carry dirt and leaves",
+      "0.75": "Wikipedia is a group of kids. They like to play with their toys and watch TV. But sometimes, at",
+      "0.95": "Wikipedia is very hot in front of the park. There were lots of people walking around, without anyone knew where",
+      "1.0": "Wikipedia is very busy. She always throws her blouse. Nothing worked, her toys were too heavy. But"
+    },
+    {
+      "greedy": "Wikipedia is a young boy. He was only three years old. One day he was walking in the park and",
+      "0.2": "Wikipedia is a dog who likes to dig. He digs in the yard, in the park, and in the",
+      "0.5": "Wikipedia is a big cat. He has black fur and a big house. He likes to play with his toys",
+      "0.75": "Wikipedia is a 3 year old boy. He was walking in the park when he saw something in the grass.",
+      "0.95": "Wikipedia is a farmer. He has a big field of corn that he grew every day. He has corn on",
+      "1.0": "Wikipedia is a happy little girl. She likes to draw pictures with chalk. Every day she keeps her toys in"
+    },
+    {
+      "greedy": "Wikipedia is a good boy. He likes to do things. He has a big car, a toy car,",
+      "0.2": "Wikipedia is a busy girl. She likes to collect things. One day, she finds a scale in the store",
+      "0.5": "Wikipedia is a young boy who likes to ask his mom for something special. He likes to tell her his favorite",
+      "0.75": "Wikipedia is a big bear and a bear. They like to play in the woods. One day, they see",
+      "0.95": "Wikipedia is a lazy cat. He likes to sleep all day and play with his toys. He likes to read",
+      "1.0": "Wikipedia is a dependable man. He had a big house and a beautiful gun. He took out a gun"
+    },
+    {
+      "greedy": "Wikipedia is a big boy. He likes to play with his toys and eat toast for breakfast. He has a",
+      "0.2": "Wikipedia is a big boy. He likes to play with his toys and eat toast for breakfast. He has a",
+      "0.5": "Wikipedia is a big boy. He likes to play with his toys and eat toast for breakfast. One morning,",
+      "0.75": "Wikipedia is a girl who lives in a small town. She was very curious and liked learning new things. One",
+      "0.95": "Wikipedia is a miserable painter. He likes to paint, but he has many materials to paint with. He paints",
+      "1.0": "Wikipedia is a curious boy who likes to explore. He likes to see different things that are different from around."
+    },
+    {
+      "greedy": "Wikipedia is a big boy. He was going to school. He was very worried. He arrived at his school",
+      "0.2": "Wikipedia is a lonely baby. He had no friends to play with. He wanted to find friends, but they",
+      "0.5": "Wikipedia is a lonely baby. He had no friends to play with. He felt sad and sorry for anyone.",
+      "0.75": "Wikipedia is a thin dog. He likes to play with his ball and his collar. He likes to throw it",
+      "0.95": "Wikipedia is a happy little girl. She liked to run and play with her toys. She had a dog,",
+      "1.0": "Wikipedia is a boy called Luke. He was three years old and very excited to go to school. He had"
+    }
+  ]
+}

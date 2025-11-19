@@ -708,7 +708,7 @@ def main():
     learning_rate = args.learning_rate
 
     block_size = args.block_size
-    train_subset_size = 50000
+    train_subset_size = 20000
     log_interval_steps = 100
     sample_interval_seconds = 30
 
@@ -733,9 +733,8 @@ def main():
     other_seqs = []
 
     if args.tinystories_weight > 0.0:
-        print("Ignoring tinystories_weight because we’re using WikiText.")
-        dataset = load_dataset("wikitext", "wikitext-103-v1", split="train")
-        dataset = dataset.filter(lambda x: len(x["text"].strip()) > 0)
+        print(f"Loading TinyStories from huggingface with weight={args.tinystories_weight}...")
+        dataset = load_dataset("roneneldan/TinyStories", split="train")
         dataset = dataset.select(range(train_subset_size))
     else:
         print("TinyStories weight=0 => skipping TinyStories.")

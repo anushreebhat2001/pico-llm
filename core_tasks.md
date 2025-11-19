@@ -38,12 +38,12 @@
 TinyStories training sanity (train/test loss over epochs):
 
 **Train loss per step + test loss per epoch**
-![TinyStories sanity plot](pico-llm/outputs_embedding_tiny/LTSM_tiny.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_embedding_tiny/LTSM_tiny.png)
 
 3seqs.txt training sanity (train/test loss over epochs):
 
 **Train loss per step + test loss per epoch**
-![3seqs sanity plot](pico-llm/outputs_embedding/LTSM_sq3.png)
+![3seqs sanity plot](pico-llm/trained_outputs/outputs_embedding/LTSM_sq3.png)
 
 
 
@@ -75,13 +75,13 @@ Both train and test loss decrease over epochs (see the plot above), which confir
 **(a) K-gram MLP on 3seq with one-hot inputs**
 
 **Train loss per step + test loss per epoch**
-![One-hot 3seq sanity plot](pico-llm/outputs_onehot/kgram_onehot.png)
+![One-hot 3seq sanity plot](pico-llm/trained_outputs/outputs_onehot/kgram_onehot.png)
 
 
 **(b) K-gram MLP on 3seq with `nn.Embedding`**
 
 **Train loss per step + test loss per epoch**
-![Embedding 3seq sanity plot](pico-llm/outputs_embedding/kgram_embedding.png)
+![Embedding 3seq sanity plot](pico-llm/trained_outputs/outputs_embedding/kgram_embedding.png)
 
 
 
@@ -115,7 +115,7 @@ In the embedding version, the loss drops quickly and the train/test curves behav
 - test_fraction : 0.1
 
 **Train loss per step + test loss per epoch**
-![Embedding 3seq sanity plot](pico-llm/outputs_3seqs_fullpattern/kgram_full.png)
+![Embedding 3seq sanity plot](pico-llm/trained_outputs/outputs_3seqs_fullpattern/kgram_full.png)
 
 
 ## 3. **Question 3.** Nucleus (top-p) sampling
@@ -205,7 +205,7 @@ As the `top-p` value increases, the generated text becomes more diverse and crea
 
 Transformer on 3seq sanity plot (train/test loss):
 
-![TinyStories sanity plot](pico-llm/outputs_3seqs_fullpattern/3seq_transformer.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_3seqs_fullpattern/3seq_transformer.png)
 
 ### 3seq.txt – Perfect Fit with Low Generalization Risk
 For the 3seq.txt dataset, both training and test loss drop sharply within the first few hundred steps and plateau close to zero.
@@ -227,9 +227,39 @@ For the 3seq.txt dataset, both training and test loss drop sharply within the fi
 
 Transformer on tinystories sanity plot (train/test loss):
 
-![TinyStories sanity plot](pico-llm/outputs_tinystories_full/outputs_tinystories_full.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tinystories_full/outputs_tinystories_full.png)
 
 ### Tinystories – Perfect Fit with Low Generalization Risk
 In the TinyStories training curve, we observe that while the training loss steadily decreases over the global steps, the test loss flattens early and begins to slightly increase in the later epochs. (Maybe overfitting)
 
 
+# Overfitting vs Underfitting - 
+
+### Configuration for overfitting -
+
+- tinystories_weight : 1.0
+- Num of epochs : 15
+- n_heads : 16
+- n_blocks : 8
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 512
+- embed_size : 1024
+- max_steps_per_epoch : 2500
+- test_fraction : 0.1
+
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny/outputs_tiny.png)
+
+
+### Configuration for underfitting -
+
+- tinystories_weight : 1.0
+- Num of epochs : 3
+- n_heads : 16
+- n_blocks : 8
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 512
+- embed_size : 1024
+- max_steps_per_epoch : 100
+- test_fraction : 0.1

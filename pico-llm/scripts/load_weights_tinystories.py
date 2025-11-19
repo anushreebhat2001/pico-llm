@@ -49,7 +49,7 @@ def main():
     parser.add_argument(
         "--weights",
         type=str,
-        default="outputs_tinystories_full/kvcache_transformer_final_weights.pt",
+        default="outputs_tiny/kvcache_transformer_final_weights.pt",
         help="Path to TinyStories transformer weights.",
     )
     parser.add_argument(
@@ -86,19 +86,19 @@ def main():
     parser.add_argument(
         "--n_heads",
         type=int,
-        default=8,
+        default=16,
         help="Number of attention heads (must match training).",
     )
     parser.add_argument(
         "--n_blocks",
         type=int,
-        default=6,
+        default=8,
         help="Number of transformer blocks (must match training).",
     )
     parser.add_argument(
         "--block_size",
         type=int,
-        default=1024,
+        default=512,
         help="Context length (must match training).",
     )
 
