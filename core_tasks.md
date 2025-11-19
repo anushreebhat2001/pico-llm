@@ -238,7 +238,37 @@ In the TinyStories training curve, we observe that while the training loss stead
 
 We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus dataset as our training data to study model behavior on long-form, factual text beyond TinyStories enabling the model to learn from longer, information-rich sentences and diverse real-world topics.
 
+### Configuration - 
+
+- wiki_weight : 1.0
+- n_heads : 16
+- n_blocks : 8
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 512
+- embed_size : 1024
+- test_fraction : 0.1
+- epochs : 15
+- max_steps_per_epoch : 1500
+
 ![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_final/outputs_wiki_final.png)
+
+Overfit so decreasing epochs according to the image to around 4500 global steps.
+
+### Configuration - 
+
+- wiki_weight : 1.0
+- n_heads : 16
+- n_blocks : 8
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 1024
+- embed_size : 1024
+- test_fraction : 0.1
+- epochs : 3
+- max_steps_per_epoch : 1500
+
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_fit/outputs_wiki_fit.png)
 
 
 # Q2. Overfitting vs Underfitting
