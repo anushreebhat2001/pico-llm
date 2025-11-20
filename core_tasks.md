@@ -462,41 +462,44 @@ Head 0 in Layer 3 focuses on establishing the **grammatical structure** of the s
 2. **Focus on Auxiliary/Grammatical Tokens**
    - The head pays particular attention to **grammatical words**, such as **auxiliary verbs** or determiners. This is visible as vertical bands in the heatmap, especially around positions $k=6$ and $k=7$ (which correspond to auxiliary verbs like "was" and determiners like "a").
    - **Interpretation**: Head 0 specializes in identifying syntactic markers, focusing on **structure** and **auxiliary words**.
-
 #### **Layer 3, Head 1: Subject-Verb-Object Relations**
 
 ### Detailed Analysis and Interpretation
 
-#### **Layer 3, Head 0: Contextual and Grammatical Attention**
+#### **Layer 3, Head 1: Contextual and Structural Attention**
 
-Head 0 in Layer 3 focuses on establishing the **grammatical structure** of the sentence by attending to key auxiliary tokens and the immediate context.
+Head 1 in Layer 3 focuses on capturing **contextual relationships** while emphasizing the **subject-verb-object** (SVO) structure of the sentence. It attends to key content words and how they relate to each other within the grammatical framework.
 
-1. **Positional Indexing and Local Context (High-Weight Diagonals)**
-   - The earliest query token, **'Once'** at position $q=0$, receives a **weight of 1.000**, indicating that it is a pivotal token in setting the **context** for the rest of the sequence.
-   - **Interpretation**: This behavior shows that the model prioritizes **context establishment** and **sentence initialization**.
+1. **Positional Indexing and Local Context**
+   - The query token **'Once'** at position **q = 0** receives a high attention weight (1.000), indicating its central role in the initialization of the sentence.
+   - **Interpretation**: Head 1 prioritizes establishing the context of the sentence from the start, paying close attention to the first token to set the stage for subsequent words.
 
-2. **Focus on Auxiliary/Grammatical Tokens**
-   - **'Once'** is a strong anchor, with other tokens like **'there'** and **'time'** attending to it, establishing a strong **grammatical relationship** between them.
-   - **Interpretation**: Head 0 seems to specialize in **structural recognition**, giving high attention to the starting token and reinforcing sentence structure.
-
-#### **Key Token Attention: 'Once' (Position 0)**
-- **High Attention to 'Once'**:
-    - **'Once'** is given a high weight (1.000), which is likely because it is the **start of the sentence**, and the model uses it to build the sentence structure.
-  
-- **Subsequent Attention**:
-    - **'there'** at position $q=5$ attends to **'Once'** with weight **0.370**, indicating that **"Once"** is crucial for the context of the following tokens.
-    - Other tokens like **'girl'**, **'Lily'**, and **'loved'** also attend to **'Once'**, but with lower weights, suggesting that they use the context established by **"Once"** to continue forming relationships within the sentence.
+2. **Focus on Key Content Tokens and Their Relationships**
+   - Head 1 demonstrates an interest in both **content tokens** and **grammatical structure**. It attends to words like **'there'**, **'time'**, **'little'**, and **'girl'**, which anchor the narrative flow.
+   - Notably, **'girl'** at position **q = 9** attends to **'there'** and **'little'**, reflecting how Head 1 maintains subject-verb-object relations by capturing the syntactic dependencies between the subject, verb, and object.
 
 ---
 
-### Visualizing Attention Maps:
-- **Head 0, Layer 3** shows an intense focus on **'Once'**, reinforcing the idea that this head is concerned with **contextual initiation** and **grammatical structure**.
+#### **Key Token Attention: Subject-Verb-Object Focus**
 
+1. **Attention to 'Once' (Position 0)**
+   - **'Once'** at position **q = 0** is given the highest attention (1.000), showing that the model relies heavily on this token to initiate the sentence and establish the context.
+   - **Interpretation**: This highlights the importance of sentence initiation in setting up the **grammatical structure** for the rest of the tokens.
+
+2. **Attention to Key Content Words**
+   - **'there'** at position **q = 5** attends to **'Once'** with a weight of **0.346**, linking it to the start of the sentence while maintaining a connection with subsequent tokens.
+   - The token **'girl'** at position **q = 9** attends to **'there'** (0.205) and **'little'** (0.202), suggesting that Head 1 helps maintain **subject-verb-object** relationships, focusing on how the subject **('girl')** and the verb **('was')** are connected by the surrounding context.
+   
+3. **Attention to Action and Subject**
+   - **'Lily'** at position **q = 11** attends to **'little'** (0.194) and **'there'** (0.187), highlighting its role in reinforcing the subject and action within the sentence. This suggests Head 1 is also attending to the relationship between the subject **('Lily')** and the action **('loved')**.
+
+4. **Progression of Action**
+   - **'loved'** at position **q = 13** attends to **'little'** (0.231), reinforcing the verb's connection to the subject. It also attends to **'Once'** (0.129) and **'there'** (0.102), underlining the model's focus on action initiation and its progression.
+
+5. **Focus on Sentence Completion**
+   - **'outside'** at position **q = 16** attends to **'play'** (0.352), indicating its role in completing the sentence’s meaning. This suggests that Head 1 helps maintain coherence between the action and its location, which is critical in understanding the sentence structure.
 
 ---
-
-### Visualizing Attention Maps:
-The attention maps for **Layer 3, Head 1** reveal how the model dynamically attends to the **subject-verb-object** relationships. By focusing on key tokens like **'girl'**, **'Lily'**, and **'was'**, **Head 1** captures the underlying syntactic dependencies that define sentence meaning.
 
 
 #### **Layer 3, Head 2: Entity Recognition and Focus on Keywords**
