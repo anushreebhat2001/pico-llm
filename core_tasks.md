@@ -201,7 +201,7 @@ As the `top-p` value increases, the generated text becomes more diverse and crea
 - embed_size : 128
 - max_steps_per_epoch : 210
 - test_fraction : 0.1
-- use_pos_embedding
+- use_position_emb
 
 ### Plot
 
@@ -224,7 +224,7 @@ For the 3seq.txt dataset, both training and test loss drop sharply within the fi
 - embed_size : 512
 - max_steps_per_epoch : 750
 - test_fraction : 0.1
-- use_pos_embedding
+- use_position_emb
 
 ### Plot
 
@@ -253,7 +253,7 @@ We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus d
 - test_fraction : 0.1
 - epochs : 15
 - max_steps_per_epoch : 1500
-- use_pos_embedding
+- use_position_emb
 
 ![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_512/loss_means_epoch_kv.png)
 
@@ -271,7 +271,7 @@ Overfit so decreasing epochs according to the image to around 3-4, 4500 global s
 - test_fraction : 0.1
 - epochs : 3
 - max_steps_per_epoch : 1500
-- use_pos_embedding
+- use_position_emb
 
 ![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_1024/loss_means_epoch_kv.png)
 
@@ -287,7 +287,7 @@ Overfit so decreasing epochs according to the image to around 3-4, 4500 global s
 - block_size : 512
 - embed_size : 1024
 - test_fraction : 0.1
-- use_pos_embedding
+- use_position_emb
 
 ## Quantitative analysis
 
@@ -394,7 +394,7 @@ To understand the internal mechanisms of the trained Transformer, we analyzed th
 - **test_fraction**: 0.1
 - **Layer (Block Index)**: 3 (Layer 3 for middle analysis)
 - **Head Indices**: 0, 1, 2, 3 (to compare multiple heads)
-- use_pos_embedding
+- use_position_emb
 - **Prompt Token Length**: 17
 
 
@@ -504,3 +504,18 @@ Head 3 focuses on understanding **subject-object relationships** and how the mod
 ---
 
 # Q7. Analyzing Pre and Post Normalization Effects
+### Configuration - 
+
+- tinystories_weight : 1.0
+- n_heads : 16
+- n_blocks : 8
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 512
+- embed_size : 1024
+- test_fraction : 0.1
+- use_position_emb
+- use_post_norm
+
+![TinyStories Pre post norm plots](pico-llm/trained_outputs/outputs_postnorm_tinystories/Pre and post norm plots.png)
+
