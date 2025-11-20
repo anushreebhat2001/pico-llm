@@ -373,7 +373,7 @@ To understand the internal mechanisms of the trained Transformer, we analyzed th
 
 ### Attention Map Visualization: Layer 0, Head 0
 
-![Attention Heatmap for Layer 0, Head 0](pico-llm/Figure_interpret.png)
+![Attention Heatmap for Layer 0, Head 0](pico-llm/trained_outputs/plots_interpretability/ouattwalg.png)
 
 The plot shows the attention weight ($W_{q,k}$) assigned by a query token at position $q$ (Y-axis) to a key token at position $k$ (X-axis). Darker colors indicate low weight, while yellow/green indicates high weight (up to 1.0).
 
@@ -406,4 +406,3 @@ By inspecting the top keys attended to by the query token `' girl'` at position 
 * It looks back to the start of the introductory phrase (`' time'`).
 
 This suggests Layer 0, Head 0 acts as a **Grammatical Marker Tracker** or **Early Context Integrator**, providing subsequent layers with a compressed, low-level representation of the noun phrase and its setting.
-
