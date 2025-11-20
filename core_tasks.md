@@ -227,7 +227,7 @@ For the 3seq.txt dataset, both training and test loss drop sharply within the fi
 
 Transformer on tinystories sanity plot (train/test loss):
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tinystories_full/outputs_tinystories_full.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tinystories_full/loss_means_epoch.png)
 
 ### Tinystories – Perfect Fit with Low Generalization Risk
 In the TinyStories training curve, we observe that while the training loss steadily decreases over the global steps, the test loss flattens early and begins to slightly increase in the later epochs. (Maybe overfitting)

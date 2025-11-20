@@ -2,47 +2,48 @@ import json
 import os
 import matplotlib.pyplot as plt
 
-dir_name = "trained_outputs/outputs_embedding_wiki"
+dir_name = "trained_outputs/outputs_embedding_tiny"
 LOSS_LOG_PATH = os.path.join(dir_name, "loss_logs.json")
 
 with open(LOSS_LOG_PATH, "r", encoding="utf-8") as f:
     logs = json.load(f)
 
 model_name = "kvcache_transformer"
-
-# Create a single plot (no subplots)
-fig, ax = plt.subplots(figsize=(8, 4))
-fig.suptitle("Train loss per step + test loss per epoch", fontsize=14)
-
 data = logs[model_name]
-train_ll = data["train"]
-test_ll  = data["test"]
 
-# Flatten train
-flat_train = []
-step_indices = []
-step_counter = 0
-epoch_start_indices = []
+train_ll = data["train"]   # list of list (per-step)
+test_ll  = data["test"]    # list of list (per-batch)
 
-for epoch_idx, epoch_losses in enumerate(train_ll, start=1):
-    epoch_start_indices.append(step_counter)
-    for loss in epoch_losses:
-        flat_train.append(loss)
-        step_indices.append(step_counter)
-        step_counter += 1
 
-ax.plot(step_indices, flat_train, label="train (per step)")
+# ---- 1) Compute mean train loss per epoch ----
+train_means = [
+    sum(epoch_losses) / len(epoch_losses)
+    if len(epoch_losses) > 0 else float("nan")
+    for epoch_losses in train_ll
+]
 
-# Test: show epoch-mean test loss as points at epoch starts
-test_means = [sum(e) / len(e) if e else float("nan") for e in test_ll]
-ax.plot(epoch_start_indices, test_means, "rx--", label="test (per epoch)")
+# ---- 2) Compute mean test loss per epoch ----
+test_means = [
+    sum(epoch_losses) / len(epoch_losses)
+    if len(epoch_losses) > 0 else float("nan")
+    for epoch_losses in test_ll
+]
 
-ax.set_title(model_name)
-ax.set_xlabel("Global step per epoch")
-ax.set_ylabel("Loss")
-ax.grid(True)
-ax.legend()
+epochs = list(range(1, len(train_means) + 1))
 
-plt.tight_layout(rect=[0, 0.03, 1, 0.92])
-plt.savefig(dir_name + ".png", dpi=200)
+
+# ---- 3) Plot the clean curve ----
+plt.figure(figsize=(8, 5))
+
+plt.plot(epochs, train_means, marker="o", label="Train (mean per epoch)")
+plt.plot(epochs, test_means, marker="s", label="Test (mean per epoch)")
+
+plt.title("Mean Train & Test Loss per Epoch")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.grid(True, alpha=0.3)
+plt.legend()
+
+plt.tight_layout()
+plt.savefig(os.path.join(dir_name, "loss_means_epoch.png"), dpi=200)
 plt.show()
