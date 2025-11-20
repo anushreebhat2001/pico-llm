@@ -251,7 +251,7 @@ We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus d
 - epochs : 15
 - max_steps_per_epoch : 1500
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_final/outputs_wiki_final.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_512/outputs_wiki_final.png)
 
 Overfit so decreasing epochs according to the image to around 4500 global steps.
 
@@ -268,7 +268,7 @@ Overfit so decreasing epochs according to the image to around 4500 global steps.
 - epochs : 3
 - max_steps_per_epoch : 1500
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_fit/outputs_wiki_fit.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_1024/outputs_wiki_fit.png)
 
 
 # Q2. Overfitting vs Underfitting
@@ -348,6 +348,16 @@ Generated text: Once upon a time, there were two friends, Bobby and Milly. Bobby
 | ------------ | ----------------------------------- | --------------------- | ------------------------ | 
 | **Underfit** | Poor – incoherent, broken sentences since training pattern is not established | Random/illogical      | None                     | 
 | **Overfit**  | High fluency, grammatical but memorized training patterns instead of generalizing it          | Very low – repetitive | Strong                   |
+
+# Q3. Change in Hyperparameters - Embed size
+### Configuration - 
+
+Taking the 2 configurations of the custom wiki dataset where one has 512 embed size and one has 1024 embed size - 
+
+![Wiki hyperparams](pico-llm/trained_outputs/compare_embed_loss.png)
+
+The model with **embedding size 1024** converges noticeably faster, showing a steeper decline in loss across the first three epochs. This happens because larger embeddings offer greater expressive power and smoother optimization dynamics, enabling the model to capture token relationships more effectively early in training. In contrast, the **512-dimensional** model learns more slowly and plateaus higher, reflecting its lower representational capacity.
+
 
 # Q5. Interpretability: Analyzing Attention Head Behavior
 
