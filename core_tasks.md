@@ -375,8 +375,41 @@ The model’s capacity far exceeds the size of both datasets, leading to overfit
 
 # Q4. Effect of positional embedding
 
+- tinystories_weight : 1.0
+- Num of epochs : 10
+- n_heads : 8
+- n_blocks : 6
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 512
+- embed_size : 512
+- max_steps_per_epoch : 750
+- test_fraction : 0.1
+- use_post_norm
+- use_position_emb (enable/disable)
 
+![Positional_embedding](pico-llm/trained_outputs/outputs_no_positional_emd_postnorm_tinystorie/Figure_1.png)
 
+Both models with and without positional embedding perform similar when the test and train losses are accounted. However, qualitative analysis of the model without positional embedding shows that the output consists of many repetitive words. This is because the causal mask only preserves the temporal order direction and does not capture the positions of the tokens, so the model behave equivalent to a bag of words distribution.
+
+### Without positional embedding
+
+```
+Prompt: Once upon a time, there was a robot
+```
+```
+Once upon a time there was a robot who loved to play. He was very happy and not to go home. He was very tired after mom and dad went home. He went home with him home. He told him mom and dad were his dad were not dad were not mean boy to go home. He loved him dad were not mean boy. He loved him. He was not mean boy very nice dad were not mean boy. He loved his dad were not mean boy. He wanted to go home. He wanted to go home. He loved his dad very much. He wanted to go home. He wanted to go home. He said he wanted to go home. He wanted to go home. He said he wanted to go home. He said he wanted to go home. He said he wanted to go home. But he wanted to go home. But he wanted to go home. But he wanted to go home. But he wanted to go home. But he wanted to go home. But he wanted to go home. But
+```
+
+### With positional embedding
+
+```
+Prompt: Once upon a time, there was a robot
+```
+```
+Once upon a time there was a robot named Frank. Frank was a very hungry and wanted to eat. He grabbed a cup and filled it with water. He was so hungry, he wanted to eat.
+He opened the cupboard and saw a big, juicy bear. He was so happy and ate it all. He took the bear and ate it all. But then, something strange happened! A big bear came and snatched the bear on his paw. He was very sad and hurt. He started to cry and said, "What happened?" The bear looked at Frank and said, "I'm sorry, I didn't know why it was so bad!" Frank smiled and said, "I'm sorry, Frank. I didn't know what to do. I'll help you find out if you want me to find a solution to make a new, you can find a new, and I'll give it to you." The bear was so happy and said, "Thank you, Mr
+```
 # Q5. Interpretability: Analyzing Attention Head Behavior
 
 To understand the internal mechanisms of the trained Transformer, we analyzed the attention patterns of specific heads. We collected the attention matrices while processing the following prompt:
