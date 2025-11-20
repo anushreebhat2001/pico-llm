@@ -349,24 +349,6 @@ Generated text: Once upon a time, there were two friends, Bobby and Milly. Bobby
 | **Underfit** | Poor – incoherent, broken sentences since training pattern is not established | Random/illogical      | None                     | 
 | **Overfit**  | High fluency, grammatical but memorized training patterns instead of generalizing it          | Very low – repetitive | Strong                   |
 
-# Q3. Change in Hyperparameters
-### Change in embed size- 
-
-Taking the 2 configurations of the custom wiki dataset where one has 512 embed size and one has 1024 embed size - 
-
-![Wiki hyperparams](pico-llm/trained_outputs/hyperparams/compare_embed_loss.png)
-
-The model with **embedding size 1024** converges noticeably faster, showing a steeper decline in loss across the first three epochs. This happens because larger embeddings offer greater expressive power and smoother optimization dynamics, enabling the model to capture token relationships more effectively early in training. In contrast, the **512-dimensional** model learns more slowly and plateaus higher, reflecting its lower representational capacity.
-
-
-###Transformer Depth and Width (number of heads and blocks)
-
-We have 16 heads and 8 blocks with 512-dimensional embeddings but have 30k datalines in tiny stories and wiki.
-
-![Wiki hyperparams](pico-llm/trained_outputs/hyperparams/overfitting_tiny_vs_wiki_16H8B.png)
-
-The model’s capacity far exceeds the size of both datasets, leading to overfitting in different ways. TinyStories overfits quickly as the model memorizes short, repetitive stories, while Wiki’s higher and dense diverse data exposes capacity limits — the model continues reducing training loss even as test loss rises steadily, reflecting poor generalization.
-
 # Q5. Interpretability: Analyzing Attention Head Behavior
 
 To understand the internal mechanisms of the trained Transformer, we analyzed the attention patterns of specific heads. We collected the attention matrices while processing the following prompt:
@@ -375,52 +357,121 @@ To understand the internal mechanisms of the trained Transformer, we analyzed th
 
 ### Configuration 
 
-- tinystories_weight : 1.0
-- Num of epochs : 10
-- n_heads : 8
-- n_blocks : 6
-- batch_size : 16
-- learning_rate : 3e-4
-- block_size : 512
-- embed_size : 512
-- max_steps_per_epoch : 750
-- test_fraction : 0.1
-* **Layer (Block Index):** 0
-* **Head Index:** 0
-* **Prompt Token Length:** 17
+- **tinystories_weight**: 1.0
+- **Num of epochs**: 10
+- **n_heads**: 8
+- **n_blocks**: 6
+- **batch_size**: 16
+- **learning_rate**: 3e-4
+- **block_size**: 512
+- **embed_size**: 512
+- **max_steps_per_epoch**: 750
+- **test_fraction**: 0.1
+- **Layer (Block Index)**: 3 (Layer 3 for middle analysis)
+- **Head Indices**: 0, 1, 2, 3 (to compare multiple heads)
+- **Prompt Token Length**: 17
 
-### Attention Map Visualization: Layer 0, Head 0
+### Attention Map Visualization: Layer 3, Head 0, Head 1, Head 2, Head 3
 
-![Attention Heatmap for Layer 0, Head 0](pico-llm/trained_outputs/plots_interpretability/ouattwalg.png)
+#### **Figure 1**: Attention Heatmap for Layer 3, Head 0
+![Attention Heatmap for Layer 3, Head 0](pico-llm/trained_outputs/plots_interpretability/Figure_1.png)
 
-The plot shows the attention weight ($W_{q,k}$) assigned by a query token at position $q$ (Y-axis) to a key token at position $k$ (X-axis). Darker colors indicate low weight, while yellow/green indicates high weight (up to 1.0).
+#### **Figure 2**: Attention Heatmap for Layer 3, Head 1
+![Attention Heatmap for Layer 3, Head 1](pico-llm/trained_outputs/plots_interpretability/Figure_2.png)
+
+#### **Figure 3**: Attention Heatmap for Layer 3, Head 2
+![Attention Heatmap for Layer 3, Head 2](pico-llm/trained_outputs/plots_interpretability/Figure_3.png)
+
+#### **Figure 4**: Attention Heatmap for Layer 3, Head 3
+![Attention Heatmap for Layer 3, Head 3](pico-llm/trained_outputs/plots_interpretability/Figure_4.png)
+
+The plots show the attention weight ($W_{q,k}$) assigned by a query token at position $q$ (Y-axis) to a key token at position $k$ (X-axis). Darker colors indicate low weight, while yellow/green indicates high weight (up to 1.0).
 
 ### Detailed Analysis and Interpretation
 
-Layer 0, Head 0 exhibits patterns characteristic of an early layer: establishing positional context and gathering fundamental grammatical information.
+#### **Layer 3, Head 0: Contextual and Grammatical Attention**
+Head 0 in Layer 3 focuses on establishing the **grammatical structure** of the sentence by attending to key auxiliary tokens and the immediate context.
 
-#### 1. Positional Indexing and Local Context (High-Weight Diagonals)
+1. **Positional Indexing and Local Context (High-Weight Diagonals)**
+   - The earliest query tokens (e.g., $q=0$ to $q=4$) show extremely high attention weights (yellow, $\approx 1.0$) to the immediately preceding tokens, including position $k=0$.
+   - **Interpretation**: The model emphasizes **Context Establishment**, ensuring strong awareness of its immediate neighborhood and the sentence's structure.
 
-The earliest query tokens (e.g., $q=0$ to $q=4$) show extremely high attention weights (yellow, $\approx 1.0$) to the immediately preceding tokens, including position $k=0$. This is a typical **Context Establishment** mechanism, ensuring each token is strongly aware of its immediate local neighborhood and the sentence start.
+2. **Focus on Auxiliary/Grammatical Tokens**
+   - The head pays particular attention to **grammatical words**, such as **auxiliary verbs** or determiners. This is visible as vertical bands in the heatmap, especially around positions $k=6$ and $k=7$ (which correspond to auxiliary verbs like "was" and determiners like "a").
+   - **Interpretation**: Head 0 specializes in identifying syntactic markers, focusing on **structure** and **auxiliary words**.
 
-#### 2. Focus on Auxiliary/Grammatical Tokens
+#### **Layer 3, Head 1: Subject-Verb-Object Relations**
 
-The head demonstrates a tendency to focus attention on key positions holding grammatical or auxiliary words. This is visible as vertical bands in the heatmap (e.g., around $k=6$ and $k=7$).
+### Detailed Analysis and Interpretation
 
-#### 3. Specific Query Analysis: `' girl'` (Position 9)
+#### **Layer 3, Head 0: Contextual and Grammatical Attention**
 
-By inspecting the top keys attended to by the query token `' girl'` at position $q=9$, we can infer the head's specific function:
+Head 0 in Layer 3 focuses on establishing the **grammatical structure** of the sentence by attending to key auxiliary tokens and the immediate context.
 
-| Key Position | Token | Attention Weight |
-| :---: | :---: | :---: |
-| 6 | `' was'` | 0.280 |
-| 3 | `' time'` | 0.202 |
-| 8 | `' little'` | 0.190 |
-| 7 | `' a'` | 0.170 |
+1. **Positional Indexing and Local Context (High-Weight Diagonals)**
+   - The earliest query token, **'Once'** at position $q=0$, receives a **weight of 1.000**, indicating that it is a pivotal token in setting the **context** for the rest of the sequence.
+   - **Interpretation**: This behavior shows that the model prioritizes **context establishment** and **sentence initialization**.
 
-**Interpretation:** The head is not simply looking at the most recent token (like `' little'`), but actively gathering foundational context elements:
-* It attends to the **verb** (`' was'`) that establishes the existence of the subject.
-* It attends to the **determiner** (`' a'`) and the **adjective** (`' little'`).
-* It looks back to the start of the introductory phrase (`' time'`).
+2. **Focus on Auxiliary/Grammatical Tokens**
+   - **'Once'** is a strong anchor, with other tokens like **'there'** and **'time'** attending to it, establishing a strong **grammatical relationship** between them.
+   - **Interpretation**: Head 0 seems to specialize in **structural recognition**, giving high attention to the starting token and reinforcing sentence structure.
 
-This suggests Layer 0, Head 0 acts as a **Grammatical Marker Tracker** or **Early Context Integrator**, providing subsequent layers with a compressed, low-level representation of the noun phrase and its setting.
+#### **Key Token Attention: 'Once' (Position 0)**
+- **High Attention to 'Once'**:
+    - **'Once'** is given a high weight (1.000), which is likely because it is the **start of the sentence**, and the model uses it to build the sentence structure.
+  
+- **Subsequent Attention**:
+    - **'there'** at position $q=5$ attends to **'Once'** with weight **0.370**, indicating that **"Once"** is crucial for the context of the following tokens.
+    - Other tokens like **'girl'**, **'Lily'**, and **'loved'** also attend to **'Once'**, but with lower weights, suggesting that they use the context established by **"Once"** to continue forming relationships within the sentence.
+
+---
+
+### Visualizing Attention Maps:
+- **Head 0, Layer 3** shows an intense focus on **'Once'**, reinforcing the idea that this head is concerned with **contextual initiation** and **grammatical structure**.
+
+
+---
+
+### Visualizing Attention Maps:
+The attention maps for **Layer 3, Head 1** reveal how the model dynamically attends to the **subject-verb-object** relationships. By focusing on key tokens like **'girl'**, **'Lily'**, and **'was'**, **Head 1** captures the underlying syntactic dependencies that define sentence meaning.
+
+
+#### **Layer 3, Head 2: Entity Recognition and Focus on Keywords**
+Head 2 focuses on **named entity recognition** and linking relevant entities, such as names and actions.
+
+1. **Token Attention to Key Subjects and Actions**
+   - **Query 11 ('Lily')** attends heavily to **'girl'** (`0.399`), **'there'** (`0.214`), and **'Once'** (`0.155`), suggesting that it tracks key entities and their roles in the sentence.
+   - **Interpretation**: This suggests that **Head 2** specializes in recognizing **key subjects** and their respective actions, such as **"Lily"** as the subject and **"girl"** as its reference.
+
+2. **Strong Attention to Actions**
+   - **Query 13 ('loved')** attends strongly to **'Once'** (`0.171`), **'there'** (`0.101`), and **'Lily'** (`0.078`), indicating that the head tracks the **actions** associated with the subject.
+   - **Interpretation**: Head 2 likely helps the model focus on **action-based dependencies**, connecting actions like "loved" to the subject and context.
+
+#### **Layer 3, Head 3: Token Attention to Relationships and Dependencies**
+Head 3 focuses on understanding **subject-object relationships** and how the model ties together actions, entities, and context.
+
+1. **Token Attention to Key Subjects and Relationships**
+   - **Query 16 ('outside')** attends to **'girl'** (`0.245`), **'Lily'** (`0.159`), and **'outside'** itself (`0.123`).
+   - **Interpretation**: This shows how **Head 3** helps build a cohesive relationship between the subject, actions, and descriptors (like **"outside"**).
+
+2. **Linking Actions and Tokens**
+   - **Query 17 ('.')** attends heavily to **'girl'** (`0.286`), **'outside'** (`0.195`), and **'Lily'** (`0.112`), suggesting that **Head 3** tracks the connections between actions and descriptions.
+   - **Interpretation**: Head 3 appears to track **higher-level dependencies** between the main subject, actions, and important events in the sentence.
+
+### **Conclusion and Inferences**
+
+- **Head Specialization**: Each attention head in Layer 3 appears to specialize in different aspects of language:
+  - **Head 0**: Focuses on establishing the **context** and **grammatical structure**.
+  - **Head 1**: Focuses on establishing **subject-verb-object relationships**, linking key **nouns** and **verbs** to form the sentence's core syntactic structure.
+  - **Head 2**: Specializes in **entity recognition** and **action tracking**.
+  - **Head 3**: Focuses on **high-level dependencies** and **relationship building**.
+
+- **Layer 3 Attention Behavior**: Layer 3 is responsible for **complex contextual understanding**, as demonstrated by the specialization of the attention heads. While **Head 0** captures grammatical structures, **Head 1**, **Head 2**, and **Head 3** build upon these structures to establish deeper relationships between the sentence elements.
+
+---
+
+### Visualizing Attention Maps:
+- The heatmaps for each head show how the model dynamically attends to different parts of the sentence at each layer. These plots visually depict the attention relationships between the tokens in the input prompt.
+- The comparison across heads highlights how each head focuses on distinct aspects of the input, from grammatical structure to entity relationships.
+
+---
