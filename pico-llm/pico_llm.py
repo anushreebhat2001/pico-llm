@@ -66,6 +66,12 @@ def parse_args():
     # Use positional embedding:
     parser.add_argument("--use_position_emb", action="store_true",
                         help="If set, the Transformer will add learned position embeddings. Disabled by default.")
+    parser.set_defaults(use_position_emb=False)
+
+    # Use post normalization
+    parser.add_argument("--use_post_norm", action="store_true",
+                        help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
+    parser.set_defaults(use_post_norm=False)
 
     args = parser.parse_args()
     return args
@@ -358,15 +364,24 @@ class TransformerBlock(nn.Module):
         )
 
     def forward(self, x, mask=None, collect_attn=False, attn_list=None, act_list=None, past_k=None, past_v=None):
-        # Attention block (pre-norm)
-        h = self.attn_norm(x)
-        attn_out, attn_weights, new_k, new_v = self.attn(h, mask=mask, past_k=past_k, past_v=past_v)
-        x = x + attn_out
 
-        # MLP block (pre-norm)
-        m = self.mlp_norm(x)
-        mlp_out = self.mlp(m)
-        x = x + mlp_out
+        # Post normalization
+        if self.use_post_norm:
+            attn_out, attn_weights, new_k, new_v = self.attn(x, mask=mask, past_k=past_k, past_v=past_v)
+            x = self.attn_norm(x + attn_out)
+
+            mlp_out = self.mlp(x)
+            x = self.mlp_norm(x + mlp_out)
+
+        # Pre-normalization (default)
+        else:
+            h = self.attn_norm(x)
+            attn_out, attn_weights, new_k, new_v = self.attn(h, mask=mask, past_k=past_k, past_v=past_v)
+            x = x + attn_out
+
+            m = self.mlp_norm(x)
+            mlp_out = self.mlp(m)
+            x = x + mlp_out
 
         if collect_attn and (attn_list is not None) and (act_list is not None):
             attn_list.append(attn_weights.detach().cpu())
