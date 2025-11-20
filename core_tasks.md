@@ -348,3 +348,61 @@ Generated text: Once upon a time, there were two friends, Bobby and Milly. Bobby
 | ------------ | ----------------------------------- | --------------------- | ------------------------ | 
 | **Underfit** | Poor – incoherent, broken sentences since training pattern is not established | Random/illogical      | None                     | 
 | **Overfit**  | High fluency, grammatical but memorized training patterns instead of generalizing it          | Very low – repetitive | Strong                   |
+
+# Q5. Interpretability: Analyzing Attention Head Behavior
+
+To understand the internal mechanisms of the trained Transformer, we analyzed the attention patterns of specific heads. We collected the attention matrices while processing the following prompt:
+
+> **PROMPT:** "Once upon a time, there was a little girl named Lily who loved to play outside."
+
+### Configuration 
+
+- tinystories_weight : 1.0
+- Num of epochs : 10
+- n_heads : 8
+- n_blocks : 6
+- batch_size : 16
+- learning_rate : 3e-4
+- block_size : 512
+- embed_size : 512
+- max_steps_per_epoch : 750
+- test_fraction : 0.1
+* **Layer (Block Index):** 0
+* **Head Index:** 0
+* **Prompt Token Length:** 17
+
+### Attention Map Visualization: Layer 0, Head 0
+
+![Attention Heatmap for Layer 0, Head 0](pico-llm/Figure_interpret.png)
+
+The plot shows the attention weight ($W_{q,k}$) assigned by a query token at position $q$ (Y-axis) to a key token at position $k$ (X-axis). Darker colors indicate low weight, while yellow/green indicates high weight (up to 1.0).
+
+### Detailed Analysis and Interpretation
+
+Layer 0, Head 0 exhibits patterns characteristic of an early layer: establishing positional context and gathering fundamental grammatical information.
+
+#### 1. Positional Indexing and Local Context (High-Weight Diagonals)
+
+The earliest query tokens (e.g., $q=0$ to $q=4$) show extremely high attention weights (yellow, $\approx 1.0$) to the immediately preceding tokens, including position $k=0$. This is a typical **Context Establishment** mechanism, ensuring each token is strongly aware of its immediate local neighborhood and the sentence start.
+
+#### 2. Focus on Auxiliary/Grammatical Tokens
+
+The head demonstrates a tendency to focus attention on key positions holding grammatical or auxiliary words. This is visible as vertical bands in the heatmap (e.g., around $k=6$ and $k=7$).
+
+#### 3. Specific Query Analysis: `' girl'` (Position 9)
+
+By inspecting the top keys attended to by the query token `' girl'` at position $q=9$, we can infer the head's specific function:
+
+| Key Position | Token | Attention Weight |
+| :---: | :---: | :---: |
+| 6 | `' was'` | 0.280 |
+| 3 | `' time'` | 0.202 |
+| 8 | `' little'` | 0.190 |
+| 7 | `' a'` | 0.170 |
+
+**Interpretation:** The head is not simply looking at the most recent token (like `' little'`), but actively gathering foundational context elements:
+* It attends to the **verb** (`' was'`) that establishes the existence of the subject.
+* It attends to the **determiner** (`' a'`) and the **adjective** (`' little'`).
+* It looks back to the start of the introductory phrase (`' time'`).
+
+This suggests Layer 0, Head 0 acts as a **Grammatical Marker Tracker** or **Early Context Integrator**, providing subsequent layers with a compressed, low-level representation of the noun phrase and its setting.
