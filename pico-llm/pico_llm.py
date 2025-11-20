@@ -350,11 +350,12 @@ class MultiHeadSelfAttention(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, n_heads, mlp_ratio=4.0):
+    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False):
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
         self.attn = MultiHeadSelfAttention(d_model, n_heads)
         self.mlp_norm = RMSNorm(d_model)
+        self.use_post_norm = use_post_norm
 
         hidden_dim = int(d_model * mlp_ratio)
         self.mlp = nn.Sequential(
@@ -391,13 +392,15 @@ class TransformerBlock(nn.Module):
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024):
+    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024, use_position_emb=False, use_post_norm=False):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
         self.n_heads = n_heads
         self.n_blocks = n_blocks
         self.block_size = block_size
+        self.use_position_emb = use_position_emb
+        self.use_post_norm = use_post_norm
 
         self.token_emb = nn.Embedding(vocab_size, d_model)
         if self.use_position_emb:
@@ -406,7 +409,7 @@ class TransformerModel(nn.Module):
             self.pos_emb = None
             
         self.blocks = nn.ModuleList(
-            [TransformerBlock(d_model=d_model, n_heads=n_heads) for _ in range(n_blocks)]
+            [TransformerBlock(d_model=d_model, n_heads=n_heads, mlp_ratio=4.0, use_post_norm=use_post_norm) for _ in range(n_blocks)]
         )
         self.final_norm = RMSNorm(d_model)
         self.unembed = nn.Linear(d_model, vocab_size, bias=False)
@@ -924,7 +927,8 @@ def main():
         n_heads=16,
         n_blocks=8,
         block_size=block_size,
-        use_position_emb=args.use_position_emb
+        use_position_emb=args.use_position_emb,
+        use_post_norm=args.use_post_norm
     ).to(device)
 
     models = {
