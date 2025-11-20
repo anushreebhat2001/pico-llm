@@ -63,6 +63,10 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
 
+    # Use positional embedding:
+    parser.add_argument("--use_position_emb", action="store_true",
+                        help="If set, the Transformer will add learned position embeddings. Disabled by default.")
+
     args = parser.parse_args()
     return args
 
@@ -381,7 +385,11 @@ class TransformerModel(nn.Module):
         self.block_size = block_size
 
         self.token_emb = nn.Embedding(vocab_size, d_model)
-        self.pos_emb = nn.Embedding(block_size, d_model)
+        if self.use_position_emb:
+            self.pos_emb = nn.Embedding(block_size, d_model)
+        else:
+            self.pos_emb = None
+            
         self.blocks = nn.ModuleList(
             [TransformerBlock(d_model=d_model, n_heads=n_heads) for _ in range(n_blocks)]
         )
@@ -419,7 +427,10 @@ class TransformerModel(nn.Module):
         positions = torch.arange(past_len, past_len + seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
 
         # token_emb expects (batch, seq_len)
-        x = self.token_emb(tokens_seq.t()) + self.pos_emb(positions)  # (batch, seq_len, d_model)
+        x = self.token_emb(tokens_seq.t()) 
+
+        if self.pos_emb is not None:
+            x = x + self.pos_emb(positions)
 
         if collect_attn:
             self.attention_matrices = []
@@ -897,7 +908,8 @@ def main():
         d_model=embed_size,
         n_heads=16,
         n_blocks=8,
-        block_size=block_size
+        block_size=block_size,
+        use_position_emb=args.use_position_emb
     ).to(device)
 
     models = {
