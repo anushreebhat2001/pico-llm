@@ -38,12 +38,12 @@
 TinyStories training sanity (train/test loss over epochs):
 
 **Train loss per step + test loss per epoch**
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_embedding_tiny/LTSM_tiny.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_embedding_tiny/loss_means_epoch_ltsm.png)
 
 3seqs.txt training sanity (train/test loss over epochs):
 
 **Train loss per step + test loss per epoch**
-![3seqs sanity plot](pico-llm/trained_outputs/outputs_embedding/LTSM_sq3.png)
+![3seqs sanity plot](pico-llm/trained_outputs/outputs_embedding/loss_means_epoch_lstm.png)
 
 
 
@@ -75,13 +75,13 @@ Both train and test loss decrease over epochs (see the plot above), which confir
 **(a) K-gram MLP on 3seq with one-hot inputs**
 
 **Train loss per step + test loss per epoch**
-![One-hot 3seq sanity plot](pico-llm/trained_outputs/outputs_onehot/kgram_onehot.png)
+![One-hot 3seq sanity plot](pico-llm/trained_outputs/outputs_onehot/loss_means_epoch_kgram.png)
 
 
 **(b) K-gram MLP on 3seq with `nn.Embedding`**
 
 **Train loss per step + test loss per epoch**
-![Embedding 3seq sanity plot](pico-llm/trained_outputs/outputs_embedding/kgram_embedding.png)
+![Embedding 3seq sanity plot](pico-llm/trained_outputs/outputs_embedding/loss_means_epoch_kgram.png)
 
 
 
@@ -115,7 +115,7 @@ In the embedding version, the loss drops quickly and the train/test curves behav
 - test_fraction : 0.1
 
 **Train loss per step + test loss per epoch**
-![Embedding 3seq sanity plot](pico-llm/trained_outputs/outputs_3seqs_fullpattern/kgram_full.png)
+![Embedding 3seq sanity plot](pico-llm/trained_outputs/outputs_3seqs_fullpattern/loss_means_epoch_kgram.png)
 
 
 ## 3. **Question 3.** Nucleus (top-p) sampling
@@ -205,7 +205,7 @@ As the `top-p` value increases, the generated text becomes more diverse and crea
 
 Transformer on 3seq sanity plot (train/test loss):
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_3seqs_fullpattern/3seq_transformer.png)
+![KV Cache sanity plot](pico-llm/trained_outputs/outputs_3seqs_fullpattern/loss_means_epoch_kv.png)
 
 ### 3seq.txt – Perfect Fit with Low Generalization Risk
 For the 3seq.txt dataset, both training and test loss drop sharply within the first few hundred steps and plateau close to zero.
@@ -227,10 +227,10 @@ For the 3seq.txt dataset, both training and test loss drop sharply within the fi
 
 Transformer on tinystories sanity plot (train/test loss):
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tinystories_full/loss_means_epoch.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tinystories_full/loss_means_epoch_kv.png)
 
-### Tinystories – Perfect Fit with Low Generalization Risk
-In the TinyStories training curve, we observe that while the training loss steadily decreases over the global steps, the test loss flattens early and begins to slightly increase in the later epochs. (Maybe overfitting)
+### Tinystories – overfitting
+In the TinyStories training curve, we observe that while the training loss steadily decreases over the epochs, the test loss flattens early and begins to slightly increase in the later epochs.
 
 # Optional Tasks
 
@@ -251,9 +251,9 @@ We used a custom subset of 30,000 lines from the hugging face Wikipedia corpus d
 - epochs : 15
 - max_steps_per_epoch : 1500
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_512/outputs_wiki_final.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_512/loss_means_epoch_kv.png)
 
-Overfit so decreasing epochs according to the image to around 4500 global steps.
+Overfit so decreasing epochs according to the image to around 3-4, 4500 global steps.(where the test loss is min)
 
 ### Configuration - 
 
@@ -268,7 +268,7 @@ Overfit so decreasing epochs according to the image to around 4500 global steps.
 - epochs : 3
 - max_steps_per_epoch : 1500
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_1024/outputs_wiki_fit.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_wiki_1024/loss_means_epoch_kv.png)
 
 
 # Q2. Overfitting vs Underfitting
@@ -288,7 +288,7 @@ Overfit so decreasing epochs according to the image to around 4500 global steps.
 ### For Underfitting -
 
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny_underfit/outputs_tiny_underfit.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny_underfit/loss_means_epoch_kv.png)
 
 #### Configuration:
 epochs = 3 | max_steps_per_epoch = 100
@@ -297,15 +297,14 @@ epochs = 3 | max_steps_per_epoch = 100
 
 - Both train and test losses remain high (~ 2–2.5) and closely aligned.
 
-- The loss curve flattens early, indicating that the model stops improving after very few updates.
+- The loss curve flattens early, indicating that the model stops improving after very few updates. (not even 0.5 loss difference within test curve)
 
 - The small gap between train and test losses suggests the model is not learning enough patterns to differentiate training vs unseen data.
 
-- Fails to capture even training regularities.
 
 ### For Overfitting -
 
-![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny_overfit/outputs_tiny.png)
+![TinyStories sanity plot](pico-llm/trained_outputs/outputs_tiny_overfit/loss_means_epoch_kv.png)
 
 #### Configuration:
 epochs = 15 | max_steps_per_epoch = 2500
@@ -348,6 +347,26 @@ Generated text: Once upon a time, there were two friends, Bobby and Milly. Bobby
 | ------------ | ----------------------------------- | --------------------- | ------------------------ | 
 | **Underfit** | Poor – incoherent, broken sentences since training pattern is not established | Random/illogical      | None                     | 
 | **Overfit**  | High fluency, grammatical but memorized training patterns instead of generalizing it          | Very low – repetitive | Strong                   |
+
+
+# Q3. Change in Hyperparameters
+### Change in embed size- 
+
+Taking the 2 configurations of the custom wiki dataset where one has 512 embed size and one has 1024 embed size - 
+
+![Wiki hyperparams](pico-llm/trained_outputs/hyperparams/compare_embed_loss.png)
+
+The model with **embedding size 1024** converges noticeably faster, showing a steeper decline in loss across the first three epochs. This happens because larger embeddings offer greater expressive power and smoother optimization dynamics, enabling the model to capture token relationships more effectively early in training. In contrast, the **512-dimensional** model learns more slowly and plateaus higher, reflecting its lower representational capacity.
+
+
+###Transformer Depth and Width (number of heads and blocks)
+
+We have 16 heads and 8 blocks with 512-dimensional embeddings but have 30k datalines in tiny stories and wiki.
+
+![Wiki hyperparams](pico-llm/trained_outputs/hyperparams/overfitting_tiny_vs_wiki_16H8B.png)
+
+The model’s capacity far exceeds the size of both datasets, leading to overfitting in different ways. TinyStories overfits quickly as the model memorizes short, repetitive stories, while Wiki’s higher and dense diverse data exposes capacity limits — the model continues reducing training loss even as test loss rises steadily, reflecting poor generalization.
+
 
 # Q5. Interpretability: Analyzing Attention Head Behavior
 

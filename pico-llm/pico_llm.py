@@ -924,16 +924,16 @@ def main():
     kv_transformer = TransformerModel(
         vocab_size=vocab_size,
         d_model=embed_size,
-        n_heads=16,
-        n_blocks=8,
+        n_heads=8,
+        n_blocks=6,
         block_size=block_size,
         use_position_emb=args.use_position_emb,
         use_post_norm=args.use_post_norm
     ).to(device)
 
     models = {
-        # "kgram_mlp_seq": kgram_model,
-        # "lstm_seq": lstm_model,
+        "kgram_mlp_seq": kgram_model,
+        "lstm_seq": lstm_model,
         "kvcache_transformer": kv_transformer,
     }
 

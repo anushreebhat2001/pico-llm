@@ -2,7 +2,7 @@ import json
 import os
 import matplotlib.pyplot as plt
 
-dir_name = "trained_outputs/outputs_embedding_tiny"
+dir_name = "trained_outputs/outputs_tiny_overfit"
 LOSS_LOG_PATH = os.path.join(dir_name, "loss_logs.json")
 
 with open(LOSS_LOG_PATH, "r", encoding="utf-8") as f:
@@ -45,5 +45,5 @@ plt.grid(True, alpha=0.3)
 plt.legend()
 
 plt.tight_layout()
-plt.savefig(os.path.join(dir_name, "loss_means_epoch.png"), dpi=200)
+plt.savefig(os.path.join(dir_name, "loss_means_epoch_kv.png"), dpi=200)
 plt.show()
