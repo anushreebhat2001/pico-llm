@@ -349,15 +349,23 @@ Generated text: Once upon a time, there were two friends, Bobby and Milly. Bobby
 | **Underfit** | Poor – incoherent, broken sentences since training pattern is not established | Random/illogical      | None                     | 
 | **Overfit**  | High fluency, grammatical but memorized training patterns instead of generalizing it          | Very low – repetitive | Strong                   |
 
-# Q3. Change in Hyperparameters - Embed size
-### Configuration - 
+# Q3. Change in Hyperparameters
+### Change in embed size- 
 
 Taking the 2 configurations of the custom wiki dataset where one has 512 embed size and one has 1024 embed size - 
 
-![Wiki hyperparams](pico-llm/trained_outputs/compare_embed_loss.png)
+![Wiki hyperparams](pico-llm/trained_outputs/hyperparams/compare_embed_loss.png)
 
 The model with **embedding size 1024** converges noticeably faster, showing a steeper decline in loss across the first three epochs. This happens because larger embeddings offer greater expressive power and smoother optimization dynamics, enabling the model to capture token relationships more effectively early in training. In contrast, the **512-dimensional** model learns more slowly and plateaus higher, reflecting its lower representational capacity.
 
+
+###Transformer Depth and Width (number of heads and blocks)
+
+We have 16 heads and 8 blocks with 512-dimensional embeddings but have 30k datalines in tiny stories and wiki.
+
+![Wiki hyperparams](pico-llm/trained_outputs/hyperparams/overfitting_tiny_vs_wiki_16H8B.png)
+
+The model’s capacity far exceeds the size of both datasets, leading to overfitting in different ways. TinyStories overfits quickly as the model memorizes short, repetitive stories, while Wiki’s higher and dense diverse data exposes capacity limits — the model continues reducing training loss even as test loss rises steadily, reflecting poor generalization.
 
 # Q5. Interpretability: Analyzing Attention Head Behavior
 
