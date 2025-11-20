@@ -373,6 +373,9 @@ We have 16 heads and 8 blocks with 512-dimensional embeddings but have 30k datal
 
 The model’s capacity far exceeds the size of both datasets, leading to overfitting in different ways. TinyStories overfits quickly as the model memorizes short, repetitive stories, while Wiki’s higher and dense diverse data exposes capacity limits — the model continues reducing training loss even as test loss rises steadily, reflecting poor generalization.
 
+# Q4. Effect of positional embedding
+
+
 
 # Q5. Interpretability: Analyzing Attention Head Behavior
 
