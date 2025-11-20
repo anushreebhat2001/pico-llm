@@ -519,3 +519,4 @@ Head 3 focuses on understanding **subject-object relationships** and how the mod
 
 ![TinyStories Pre post norm plots](pico-llm/trained_outputs/outputs_postnorm_tinystories/Pre_post_norm_plots.png)
 
+We observe that across all epochs, both training and test losses for the post-norm variant are lower than those of the pre-norm model. Post-norm places layer normalization after the residual addition, which stabilizes gradient flow by preventing the residual branch from dominating early in training. This reduces gradient variance, improves conditioning of the Transformer blocks, and leads to smoother optimization in small sized datasets like Tiny Stories.
