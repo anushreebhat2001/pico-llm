@@ -406,3 +406,4 @@ By inspecting the top keys attended to by the query token `' girl'` at position 
 * It looks back to the start of the introductory phrase (`' time'`).
 
 This suggests Layer 0, Head 0 acts as a **Grammatical Marker Tracker** or **Early Context Integrator**, providing subsequent layers with a compressed, low-level representation of the noun phrase and its setting.
+
