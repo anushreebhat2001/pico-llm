@@ -388,7 +388,7 @@ The model’s capacity far exceeds the size of both datasets, leading to overfit
 - use_post_norm
 - use_position_emb (enable/disable)
 
-![Positional_embedding](pico-llm/trained_outputs/outputs_no_positional_emd_postnorm_tinystorie/Figure_1.png)
+![Positional_embedding](pico-llm/trained_outputs/outputs_no_positional_emd_postnorm_tinystories/Figure_1.png)
 
 Both models with and without positional embedding perform similar when the test and train losses are accounted. However, qualitative analysis of the model without positional embedding shows that the output consists of many repetitive words. This is because the causal mask only preserves the temporal order direction and does not capture the positions of the tokens, so the model behave equivalent to a bag of words distribution.
 
