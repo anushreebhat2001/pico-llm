@@ -517,5 +517,5 @@ Head 3 focuses on understanding **subject-object relationships** and how the mod
 - use_position_emb
 - use_post_norm
 
-![TinyStories Pre post norm plots]([pico-llm/trained_outputs/outputs_postnorm_tinystories/Pre_post_norm_plots.png])
+![TinyStories Pre post norm plots](pico-llm/trained_outputs/outputs_postnorm_tinystories/Pre_post_norm_plots.png)
 
