@@ -73,6 +73,14 @@ def parse_args():
                         help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
     parser.set_defaults(use_post_norm=False)
 
+    parser.add_argument("--compile", action="store_true",
+                    help="If set, torch.compile the Transformer for faster training/benchmarking (PyTorch 2.x).")
+    parser.set_defaults(compile=False)
+
+    parser.add_argument("--compile_mode", type=str, default="reduce-overhead",
+                    choices=["default", "reduce-overhead", "max-autotune"],
+                    help="torch.compile mode.")
+
     # NEW: choose attention type for Transformer
     parser.add_argument("--transformer_attention", type=str, default="softmax", choices=["softmax", "linear"],
                         help="Transformer attention type: 'softmax' (with KV-cache) or 'linear' (causal linear attention). Default='softmax'.")
@@ -628,6 +636,25 @@ def benchmark_train_step(model, vocab_size, device, seq_len, batch_size, lr, war
     tokens_per_sec = (seq_len * batch_size) / (mean_ms / 1000.0)
     return mean_ms, std_ms, tokens_per_sec
 
+def maybe_compile(model, device, do_compile: bool, mode: str = "reduce-overhead"):
+    # Only worth compiling on CUDA; CPU compile is often meh.
+    if (not do_compile) or (device.type != "cuda"):
+        return model
+
+    if not hasattr(torch, "compile"):
+        print("torch.compile not available (need PyTorch 2.x). Skipping compile.")
+        return model
+
+    # Helps Inductor pick faster matmul kernels
+    torch.set_float32_matmul_precision("high")
+
+    try:
+        model = torch.compile(model, mode=mode, fullgraph=False)
+        print(f"[compile] Compiled model with mode='{mode}'.")
+    except Exception as e:
+        print(f"[compile] Compile failed, running eager. Error: {e}")
+    return model
+
 def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
     random.seed(args.sweep_seed)
     torch.manual_seed(args.sweep_seed)
@@ -660,6 +687,8 @@ def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
         use_post_norm=args.use_post_norm,
         attention_type=args.transformer_attention,
     ).to(device)
+
+    kv_transformer = maybe_compile(kv_transformer, device, args.compile, args.compile_mode)
 
     for L in seq_lens:
         mean_ms, std_ms, tps = benchmark_train_step(
@@ -1135,6 +1164,9 @@ def main():
         use_post_norm=args.use_post_norm,
         attention_type=args.transformer_attention,
     ).to(device)
+    
+    kv_transformer = maybe_compile(kv_transformer, device, args.compile, args.compile_mode)
+
 
     models = {
         "kgram_mlp_seq": kgram_model,
