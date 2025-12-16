@@ -1,5 +1,6 @@
 HW1/
 HW2/
 hw3/
+HW4/
 pico-llm/trained_outputs/**/*.pt
 .DS_Store

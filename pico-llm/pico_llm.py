@@ -73,6 +73,22 @@ def parse_args():
                         help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
     parser.set_defaults(use_post_norm=False)
 
+    # Timing sweep flags (for ms/step vs seq_len benchmarking)
+    parser.add_argument("--run_timing_sweep", action="store_true",
+                        help="If set, run a timing sweep (training step time vs sequence length) and exit.")
+    parser.set_defaults(run_timing_sweep=False)
+    parser.add_argument("--sweep_seq_lens", type=str, default="64,128,256,512,1024",
+                        help="Comma-separated sequence lengths for timing sweep.")
+    parser.add_argument("--sweep_warmup_steps", type=int, default=5,
+                        help="Warmup steps per sequence length (not measured).")
+    parser.add_argument("--sweep_measured_steps", type=int, default=30,
+                        help="Measured steps per sequence length.")
+    parser.add_argument("--sweep_seed", type=int, default=1337,
+                        help="Random seed for timing sweep.")
+    parser.add_argument("--sweep_only_transformer", action="store_true",
+                        help="If set, timing sweep runs only the Transformer model (recommended).")
+    parser.set_defaults(sweep_only_transformer=True)
+
     args = parser.parse_args()
     return args
 
@@ -485,6 +501,110 @@ class TransformerModel(nn.Module):
 
 
 ################################################################################
+# Timing sweep (training step time vs seq_len)
+################################################################################
+
+def _sync_if_cuda(device):
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+def benchmark_train_step(model, vocab_size, device, seq_len, batch_size, lr, warmup_steps, measured_steps):
+    model.train()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    times_ms = []
+
+    for _ in range(warmup_steps):
+        tokens = torch.randint(0, vocab_size, (seq_len, batch_size), device=device, dtype=torch.long)
+        logits = model(tokens)
+        loss = compute_next_token_loss(logits, tokens)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    _sync_if_cuda(device)
+
+    for _ in range(measured_steps):
+        tokens = torch.randint(0, vocab_size, (seq_len, batch_size), device=device, dtype=torch.long)
+        _sync_if_cuda(device)
+        t0 = time.perf_counter()
+
+        logits = model(tokens)
+        loss = compute_next_token_loss(logits, tokens)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        _sync_if_cuda(device)
+        t1 = time.perf_counter()
+        times_ms.append((t1 - t0) * 1000.0)
+
+    mean_ms = sum(times_ms) / len(times_ms)
+    if len(times_ms) > 1:
+        var = sum((x - mean_ms) ** 2 for x in times_ms) / (len(times_ms) - 1)
+        std_ms = math.sqrt(var)
+    else:
+        std_ms = 0.0
+
+    tokens_per_sec = (seq_len * batch_size) / (mean_ms / 1000.0)
+    return mean_ms, std_ms, tokens_per_sec
+
+def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
+    random.seed(args.sweep_seed)
+    torch.manual_seed(args.sweep_seed)
+
+    seq_lens = [int(x.strip()) for x in args.sweep_seq_lens.split(",") if x.strip()]
+    sweep_results = {
+        "benchmark": "train_step_time_vs_seq_len",
+        "model": "kvcache_transformer",
+        "device": str(device),
+        "embed_size": embed_size,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "warmup_steps": args.sweep_warmup_steps,
+        "measured_steps": args.sweep_measured_steps,
+        "points": [],
+    }
+
+    # Ensure model block_size can handle the max seq_len for mask/pos_emb
+    max_seq = max(seq_lens)
+    sweep_block_size = max(block_size, max_seq)
+
+    kv_transformer = TransformerModel(
+        vocab_size=vocab_size,
+        d_model=embed_size,
+        n_heads=8,
+        n_blocks=6,
+        block_size=sweep_block_size,
+        use_position_emb=args.use_position_emb,
+        use_post_norm=args.use_post_norm
+    ).to(device)
+
+    for L in seq_lens:
+        mean_ms, std_ms, tps = benchmark_train_step(
+            model=kv_transformer,
+            vocab_size=vocab_size,
+            device=device,
+            seq_len=L,
+            batch_size=args.batch_size,
+            lr=args.learning_rate,
+            warmup_steps=args.sweep_warmup_steps,
+            measured_steps=args.sweep_measured_steps,
+        )
+        sweep_results["points"].append({
+            "seq_len": L,
+            "step_time_ms_mean": mean_ms,
+            "step_time_ms_std": std_ms,
+            "tokens_per_sec": tps
+        })
+        print(f"[timing_sweep] seq_len={L} mean_ms={mean_ms:.2f} std_ms={std_ms:.2f} tokens/s={tps:.1f}")
+
+    sweep_path = os.path.join(args.output_dir, "timing_sweep_kvcache_transformer.json")
+    with open(sweep_path, "w", encoding="utf-8") as f:
+        json.dump(sweep_results, f, indent=2)
+    print(f"[timing_sweep] Saved timing sweep results to {sweep_path}")
+
+
+################################################################################
 # 6. K-Means Monosemantic (DISABLED by default)
 ################################################################################
 
@@ -821,6 +941,10 @@ def main():
     enc = tiktoken.get_encoding("gpt2")
     vocab_size = enc.n_vocab
     print(f"Vocab size: {vocab_size}")
+
+    if args.run_timing_sweep:
+        run_timing_sweep(args, vocab_size, device, embed_size, block_size)
+        return
 
     if dataset is not None:
         for sample in dataset:
