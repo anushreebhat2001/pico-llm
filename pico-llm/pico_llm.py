@@ -10,9 +10,6 @@ import torch.nn.functional as F
 import os
 import json
 
-# We do not import numpy or scikit-learn, so we implement a naive k-means in pure PyTorch.
-# If you prefer scikit-learn, you can adapt the code.
-
 from datasets import load_dataset
 import tiktoken
 
@@ -73,21 +70,22 @@ def parse_args():
                         help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
     parser.set_defaults(use_post_norm=False)
 
-    # Timing sweep flags (for ms/step vs seq_len benchmarking)
+    # NEW: attention implementation switch
+    parser.add_argument("--attn_impl", type=str, default="softmax",
+                        choices=["softmax", "linear"],
+                        help="Attention implementation: softmax (standard) or linear (causal linear attention).")
+
+    # NEW: timing sweep
     parser.add_argument("--run_timing_sweep", action="store_true",
-                        help="If set, run a timing sweep (training step time vs sequence length) and exit.")
+                        help="If set, run timing sweep for training step time vs sequence length and exit.")
     parser.set_defaults(run_timing_sweep=False)
+
     parser.add_argument("--sweep_seq_lens", type=str, default="64,128,256,512,1024",
                         help="Comma-separated sequence lengths for timing sweep.")
-    parser.add_argument("--sweep_warmup_steps", type=int, default=5,
-                        help="Warmup steps per sequence length (not measured).")
     parser.add_argument("--sweep_measured_steps", type=int, default=30,
-                        help="Measured steps per sequence length.")
-    parser.add_argument("--sweep_seed", type=int, default=1337,
-                        help="Random seed for timing sweep.")
-    parser.add_argument("--sweep_only_transformer", action="store_true",
-                        help="If set, timing sweep runs only the Transformer model (recommended).")
-    parser.set_defaults(sweep_only_transformer=True)
+                        help="Number of measured steps per sequence length.")
+    parser.add_argument("--sweep_warmup_steps", type=int, default=5,
+                        help="Number of warmup steps per sequence length (not measured).")
 
     args = parser.parse_args()
     return args
@@ -365,13 +363,66 @@ class MultiHeadSelfAttention(nn.Module):
         return attn_output, attn_weights, k, v
 
 
+# NEW: causal linear attention (training-time)
+class MultiHeadCausalLinearAttention(nn.Module):
+    """
+    Causal linear attention using prefix sums.
+    Feature map: phi(x) = ELU(x) + 1 (positive).
+    Returns attn_weights=None and no KV-cache tensors.
+    """
+    def __init__(self, d_model, n_heads, eps=1e-6):
+        super().__init__()
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.eps = eps
+
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+
+    def _phi(self, x):
+        return F.elu(x) + 1.0
+
+    def forward(self, x, mask=None, past_k=None, past_v=None):
+        B, T, C = x.shape
+        H = self.n_heads
+        D = self.head_dim
+
+        q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)  # (B,H,T,D)
+        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)  # (B,H,T,D)
+        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)  # (B,H,T,D)
+
+        q_phi = self._phi(q)
+        k_phi = self._phi(k)
+
+        K_prefix = torch.cumsum(k_phi, dim=2)  # (B,H,T,D)
+
+        KV = k_phi.unsqueeze(-1) * v.unsqueeze(-2)  # (B,H,T,D,D)
+        KV_prefix = torch.cumsum(KV, dim=2)         # (B,H,T,D,D)
+
+        numerator = torch.einsum("bhtd,bhtde->bhte", q_phi, KV_prefix)  # (B,H,T,D)
+        denominator = torch.einsum("bhtd,bhtd->bht", q_phi, K_prefix).clamp_min(self.eps)  # (B,H,T)
+
+        out = numerator / denominator.unsqueeze(-1)  # (B,H,T,D)
+        out = out.transpose(1, 2).contiguous().view(B, T, C)  # (B,T,C)
+        out = self.out_proj(out)
+        return out, None, None, None
+
+
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False):
+    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False, attn_impl="softmax"):
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
-        self.attn = MultiHeadSelfAttention(d_model, n_heads)
         self.mlp_norm = RMSNorm(d_model)
         self.use_post_norm = use_post_norm
+
+        if attn_impl == "linear":
+            self.attn = MultiHeadCausalLinearAttention(d_model, n_heads)
+        else:
+            self.attn = MultiHeadSelfAttention(d_model, n_heads)
 
         hidden_dim = int(d_model * mlp_ratio)
         self.mlp = nn.Sequential(
@@ -400,7 +451,7 @@ class TransformerBlock(nn.Module):
             mlp_out = self.mlp(m)
             x = x + mlp_out
 
-        if collect_attn and (attn_list is not None) and (act_list is not None):
+        if collect_attn and (attn_list is not None) and (act_list is not None) and (attn_weights is not None):
             attn_list.append(attn_weights.detach().cpu())
             act_list.append(mlp_out.detach().cpu())
 
@@ -408,7 +459,8 @@ class TransformerBlock(nn.Module):
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024, use_position_emb=False, use_post_norm=False):
+    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024,
+                 use_position_emb=False, use_post_norm=False, attn_impl="softmax"):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
@@ -423,9 +475,11 @@ class TransformerModel(nn.Module):
             self.pos_emb = nn.Embedding(block_size, d_model)
         else:
             self.pos_emb = None
-            
+
         self.blocks = nn.ModuleList(
-            [TransformerBlock(d_model=d_model, n_heads=n_heads, mlp_ratio=4.0, use_post_norm=use_post_norm) for _ in range(n_blocks)]
+            [TransformerBlock(d_model=d_model, n_heads=n_heads, mlp_ratio=4.0,
+                              use_post_norm=use_post_norm, attn_impl=attn_impl)
+             for _ in range(n_blocks)]
         )
         self.final_norm = RMSNorm(d_model)
         self.unembed = nn.Linear(d_model, vocab_size, bias=False)
@@ -461,7 +515,7 @@ class TransformerModel(nn.Module):
         positions = torch.arange(past_len, past_len + seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
 
         # token_emb expects (batch, seq_len)
-        x = self.token_emb(tokens_seq.t()) 
+        x = self.token_emb(tokens_seq.t())
 
         if self.pos_emb is not None:
             x = x + self.pos_emb(positions)
@@ -501,110 +555,6 @@ class TransformerModel(nn.Module):
 
 
 ################################################################################
-# Timing sweep (training step time vs seq_len)
-################################################################################
-
-def _sync_if_cuda(device):
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-def benchmark_train_step(model, vocab_size, device, seq_len, batch_size, lr, warmup_steps, measured_steps):
-    model.train()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    times_ms = []
-
-    for _ in range(warmup_steps):
-        tokens = torch.randint(0, vocab_size, (seq_len, batch_size), device=device, dtype=torch.long)
-        logits = model(tokens)
-        loss = compute_next_token_loss(logits, tokens)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-    _sync_if_cuda(device)
-
-    for _ in range(measured_steps):
-        tokens = torch.randint(0, vocab_size, (seq_len, batch_size), device=device, dtype=torch.long)
-        _sync_if_cuda(device)
-        t0 = time.perf_counter()
-
-        logits = model(tokens)
-        loss = compute_next_token_loss(logits, tokens)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        _sync_if_cuda(device)
-        t1 = time.perf_counter()
-        times_ms.append((t1 - t0) * 1000.0)
-
-    mean_ms = sum(times_ms) / len(times_ms)
-    if len(times_ms) > 1:
-        var = sum((x - mean_ms) ** 2 for x in times_ms) / (len(times_ms) - 1)
-        std_ms = math.sqrt(var)
-    else:
-        std_ms = 0.0
-
-    tokens_per_sec = (seq_len * batch_size) / (mean_ms / 1000.0)
-    return mean_ms, std_ms, tokens_per_sec
-
-def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
-    random.seed(args.sweep_seed)
-    torch.manual_seed(args.sweep_seed)
-
-    seq_lens = [int(x.strip()) for x in args.sweep_seq_lens.split(",") if x.strip()]
-    sweep_results = {
-        "benchmark": "train_step_time_vs_seq_len",
-        "model": "kvcache_transformer",
-        "device": str(device),
-        "embed_size": embed_size,
-        "batch_size": args.batch_size,
-        "learning_rate": args.learning_rate,
-        "warmup_steps": args.sweep_warmup_steps,
-        "measured_steps": args.sweep_measured_steps,
-        "points": [],
-    }
-
-    # Ensure model block_size can handle the max seq_len for mask/pos_emb
-    max_seq = max(seq_lens)
-    sweep_block_size = max(block_size, max_seq)
-
-    kv_transformer = TransformerModel(
-        vocab_size=vocab_size,
-        d_model=embed_size,
-        n_heads=8,
-        n_blocks=6,
-        block_size=sweep_block_size,
-        use_position_emb=args.use_position_emb,
-        use_post_norm=args.use_post_norm
-    ).to(device)
-
-    for L in seq_lens:
-        mean_ms, std_ms, tps = benchmark_train_step(
-            model=kv_transformer,
-            vocab_size=vocab_size,
-            device=device,
-            seq_len=L,
-            batch_size=args.batch_size,
-            lr=args.learning_rate,
-            warmup_steps=args.sweep_warmup_steps,
-            measured_steps=args.sweep_measured_steps,
-        )
-        sweep_results["points"].append({
-            "seq_len": L,
-            "step_time_ms_mean": mean_ms,
-            "step_time_ms_std": std_ms,
-            "tokens_per_sec": tps
-        })
-        print(f"[timing_sweep] seq_len={L} mean_ms={mean_ms:.2f} std_ms={std_ms:.2f} tokens/s={tps:.1f}")
-
-    sweep_path = os.path.join(args.output_dir, "timing_sweep_kvcache_transformer.json")
-    with open(sweep_path, "w", encoding="utf-8") as f:
-        json.dump(sweep_results, f, indent=2)
-    print(f"[timing_sweep] Saved timing sweep results to {sweep_path}")
-
-
-################################################################################
 # 6. K-Means Monosemantic (DISABLED by default)
 ################################################################################
 
@@ -618,23 +568,15 @@ def monosemantic_analysis_for_token(token_id, model, enc, device="cpu", top_n=5)
 ################################################################################
 
 def nucleus_sampling(logits, p=0.95):
-    """
-    logits: 1D tensor (vocab_size,)
-    p: float in (0,1]; cumulative probability mass to keep.
-    Implements top-p (nucleus) sampling.
-    """
     probs = torch.softmax(logits, dim=-1)
 
     if p >= 1.0:
-        # Pure sampling from full distribution
         idx = torch.multinomial(probs, num_samples=1)
         return idx.item()
 
-    # Sort probabilities in descending order
     sorted_probs, sorted_indices = torch.sort(probs, descending=True)
     cum_probs = torch.cumsum(sorted_probs, dim=-1)
 
-    # Smallest k such that cumulative probability >= p
     k = torch.searchsorted(cum_probs, torch.tensor(p, device=logits.device)).item() + 1
     k = max(1, min(k, sorted_probs.size(0)))
 
@@ -668,22 +610,19 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
 
         for step_i in range(max_new_tokens):
             if isinstance(model, TransformerModel):
-                # Use cache: feed full context on first step, then 1 token at a time
                 if past_kv is None:
                     seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
                 else:
                     seq_tensor = torch.tensor([context_tokens[-1]], dtype=torch.long, device=device).unsqueeze(1)  # (1,1)
 
                 logits_seq, past_kv = model(seq_tensor, past_kv=past_kv, return_kv=True)
-                next_logits = logits_seq[-1, 0, :]  # (vocab,)
+                next_logits = logits_seq[-1, 0, :]
             else:
-                # Generic path: recompute on whole prefix
                 seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
-                logits_seq = model(seq_tensor)  # (L,1,V)
+                logits_seq = model(seq_tensor)
                 next_logits = logits_seq[-1, 0, :]
 
             if top_p is None:
-                # greedy
                 chosen_token = torch.argmax(next_logits).item()
             else:
                 chosen_token = nucleus_sampling(next_logits, p=top_p)
@@ -810,7 +749,6 @@ def train_one_model(model,
                     print(f" Top-p (p=0.95) Sample: {text_topp}")
                     print(f" Annotated: {ann_topp}\n")
 
-                    # third generation => top-p=1.0 => full distribution random sampling
                     print(f"[{model_name}] Generating sample text (top-p=1.0) at epoch={epoch}, step={batch_idx}...")
                     text_topp1, ann_topp1 = generate_text(
                         model, enc, prompt, max_new_tokens=20, device=device,
@@ -831,9 +769,6 @@ def train_one_model(model,
         print(f"[{model_name}] *** End of Epoch {epoch} *** Avg Train Loss: {avg_loss:.4f}")
         train_losses_per_epoch.append(epoch_train_losses)
 
-        # -------------------------------
-        # Evaluation on test set
-        # -------------------------------
         epoch_test_losses = []
         if test_loader is not None:
             model.eval()
@@ -850,19 +785,14 @@ def train_one_model(model,
             print(f"[{model_name}] Epoch {epoch}/{epochs} *** Avg Test Loss: {avg_test_loss:.4f}")
         test_losses_per_epoch.append(epoch_test_losses)
 
-        # -------------------------------
-        # Generations for different p-values for this epoch
-        # -------------------------------
         epoch_generations = {}
         if enc is not None:
             with torch.no_grad():
-                # Greedy
                 text_greedy, _ = generate_text(
                     model, enc, prompt, max_new_tokens=20, device=device,
                     top_p=None
                 )
                 epoch_generations["greedy"] = text_greedy
-                # Different nucleus sampling values
                 for pval in top_p_values:
                     text_p, _ = generate_text(
                         model, enc, prompt, max_new_tokens=20, device=device,
@@ -876,7 +806,96 @@ def train_one_model(model,
 
 
 ################################################################################
-# 9. Main
+# 9. Timing sweep
+################################################################################
+
+def _cuda_sync_if_needed(device):
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+
+
+def run_timing_sweep(args, device, enc):
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    seq_lens = [int(x.strip()) for x in args.sweep_seq_lens.split(",") if x.strip()]
+    if len(seq_lens) == 0:
+        raise ValueError("No sweep_seq_lens provided.")
+
+    max_len = max(seq_lens)
+    vocab_size = enc.n_vocab
+
+    model = TransformerModel(
+        vocab_size=vocab_size,
+        d_model=args.embed_size,
+        n_heads=8,
+        n_blocks=6,
+        block_size=max_len,
+        use_position_emb=args.use_position_emb,
+        use_post_norm=args.use_post_norm,
+        attn_impl=args.attn_impl,
+    ).to(device)
+
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    results = []
+    model_name = f"{args.attn_impl}_transformer"
+
+    print(f"\n=== Timing sweep: {model_name} ===")
+    print(f"Sequence lengths: {seq_lens}")
+    print(f"Warmup steps: {args.sweep_warmup_steps}, Measured steps: {args.sweep_measured_steps}\n")
+
+    for L in seq_lens:
+        tokens = torch.randint(
+            low=0, high=vocab_size, size=(L, args.batch_size),
+            dtype=torch.long, device=device
+        )
+
+        model.train()
+
+        for _ in range(args.sweep_warmup_steps):
+            optimizer.zero_grad()
+            _cuda_sync_if_needed(device)
+            logits = model(tokens)
+            loss = compute_next_token_loss(logits, tokens)
+            loss.backward()
+            optimizer.step()
+            _cuda_sync_if_needed(device)
+
+        times_ms = []
+        for _ in range(args.sweep_measured_steps):
+            optimizer.zero_grad()
+            _cuda_sync_if_needed(device)
+            t0 = time.time()
+            logits = model(tokens)
+            loss = compute_next_token_loss(logits, tokens)
+            loss.backward()
+            optimizer.step()
+            _cuda_sync_if_needed(device)
+            t1 = time.time()
+            times_ms.append((t1 - t0) * 1000.0)
+
+        avg_ms = sum(times_ms) / len(times_ms)
+        tokens_per_step = L * args.batch_size
+        tokens_per_sec = tokens_per_step / (avg_ms / 1000.0)
+
+        row = {
+            "attn_impl": args.attn_impl,
+            "seq_len": L,
+            "batch_size": args.batch_size,
+            "avg_step_time_ms": avg_ms,
+            "tokens_per_sec": tokens_per_sec,
+        }
+        results.append(row)
+        print(f"[{model_name}] L={L:4d}  avg_ms/step={avg_ms:8.2f}  tokens/sec={tokens_per_sec:10.2f}")
+
+    out_path = os.path.join(args.output_dir, f"timing_sweep_{args.attn_impl}.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nSaved timing sweep results to {out_path}\n")
+
+
+################################################################################
+# 10. Main
 ################################################################################
 
 def split_sequences(seqs, test_fraction):
@@ -895,7 +914,6 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Additional local variables from arguments
     k = args.kgram_k
     chunk_size = args.kgram_chunk_size
 
@@ -913,7 +931,6 @@ def main():
     num_inner_layers = args.num_inner_mlp_layers
     test_fraction = args.test_fraction
 
-    # NEW: pick device from args.device_id, fallback to cpu if needed
     requested_device_id = args.device_id
     if requested_device_id.startswith("cuda") and not torch.cuda.is_available():
         print(f"Requested device '{requested_device_id}' but CUDA not available. Falling back to CPU.")
@@ -922,6 +939,14 @@ def main():
         device = torch.device(requested_device_id)
 
     print(f"Using device: {device}, block_size={block_size}, kgram_k={k}, chunk_size={chunk_size}, embed_size={embed_size}")
+
+    enc = tiktoken.get_encoding("gpt2")
+    vocab_size = enc.n_vocab
+    print(f"Vocab size: {vocab_size}")
+
+    if args.run_timing_sweep:
+        run_timing_sweep(args, device, enc)
+        return
 
     ############################################################################
     # Data
@@ -937,14 +962,6 @@ def main():
     else:
         print("TinyStories weight=0 => skipping TinyStories.")
         dataset = None
-
-    enc = tiktoken.get_encoding("gpt2")
-    vocab_size = enc.n_vocab
-    print(f"Vocab size: {vocab_size}")
-
-    if args.run_timing_sweep:
-        run_timing_sweep(args, vocab_size, device, embed_size, block_size)
-        return
 
     if dataset is not None:
         for sample in dataset:
@@ -976,11 +993,9 @@ def main():
     if len(tinystories_seqs) == 0 and p_tiny > 0:
         print("Warning: TinyStories is empty but tinystories_weight>0. That's okay, no data from it.")
 
-    # Train/test split on sequence lists
     tiny_train, tiny_test = split_sequences(tinystories_seqs, test_fraction)
     other_train, other_test = split_sequences(other_seqs, test_fraction)
 
-    # Fallback if test split is empty
     if len(tiny_test) == 0 and len(other_test) == 0:
         print("Warning: test split is empty; using a small portion of training data as test.")
         if len(tiny_train) > 1:
@@ -998,7 +1013,6 @@ def main():
         p_tiny=p_tiny
     )
 
-    # It is possible that test set is empty; handle gracefully
     test_dataset = None
     if len(tiny_test) + len(other_test) > 0:
         test_dataset = MixedSequenceDataset(
@@ -1052,7 +1066,8 @@ def main():
         n_blocks=6,
         block_size=block_size,
         use_position_emb=args.use_position_emb,
-        use_post_norm=args.use_post_norm
+        use_post_norm=args.use_post_norm,
+        attn_impl=args.attn_impl
     ).to(device)
 
     models = {
@@ -1082,7 +1097,7 @@ def main():
             sample_interval=sample_interval_seconds,
             max_steps_per_epoch=max_steps_per_epoch,
             enc=enc,
-            prompt=args.prompt,  # <--- Pass the user-specified prompt here
+            prompt=args.prompt,
             top_p_values=top_p_values,
         )
 
@@ -1092,19 +1107,15 @@ def main():
         }
         all_generation_logs[model_name] = gen_per_epoch
 
-        # Save model weights to load later
         weights_path = os.path.join(args.output_dir, f"{model_name}_final_weights.pt")
         torch.save(model.state_dict(), weights_path)
         print(f"[{model_name}] Saved final weights to {weights_path}")
 
-        # Final generation from the user-provided prompt (args.prompt).
         with torch.no_grad():
-            # 1) Greedy
             text_greedy, ann_greedy = generate_text(
                 model, enc, args.prompt, max_new_tokens=20, device=device,
                 top_p=None,
             )
-            # 2) different p-values for final prompt output
             final_generations = {"greedy": text_greedy}
             for pval in top_p_values:
                 text_p, ann_p = generate_text(
@@ -1118,7 +1129,6 @@ def main():
             print(f"  Sampling mode {key}:")
             print(f"  {txt}\n")
 
-        # Save attention matrices and activation outputs for Transformer
         if isinstance(model, TransformerModel):
             with torch.no_grad():
                 sample_tokens = torch.tensor(
@@ -1135,7 +1145,6 @@ def main():
                 print(f"[{model_name}] Saved attention matrices to {attn_file}")
                 print(f"[{model_name}] Saved MLP activation outputs to {acts_file}")
 
-    # Save JSON logs for losses and generations
     loss_log_path = os.path.join(args.output_dir, "loss_logs.json")
     gen_log_path = os.path.join(args.output_dir, "generation_logs.json")
 
@@ -1147,7 +1156,6 @@ def main():
     print(f"\nSaved loss logs to {loss_log_path}")
     print(f"Saved generation logs to {gen_log_path}")
 
-    # Finally, let's share how I'm feeling:
     print("\n*** I'm feeling great today! Hope you're well, too. ***")
 
 
