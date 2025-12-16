@@ -1,0 +1,31 @@
+{
+  "benchmark": "train_step_time_vs_seq_len",
+  "model": "kvcache_transformer",
+  "attention": "linear",
+  "device": "cuda:0",
+  "embed_size": 1024,
+  "batch_size": 16,
+  "learning_rate": 0.001,
+  "warmup_steps": 5,
+  "measured_steps": 30,
+  "points": [
+    {
+      "seq_len": 64,
+      "step_time_ms_mean": 444.0282647334546,
+      "step_time_ms_std": 6.44896563833437,
+      "tokens_per_sec": 2306.1594977848904
+    },
+    {
+      "seq_len": 128,
+      "step_time_ms_mean": 885.8280367334677,
+      "step_time_ms_std": 11.123747639776774,
+      "tokens_per_sec": 2311.9611426525807
+    },
+    {
+      "seq_len": 256,
+      "step_time_ms_mean": 1804.5792596666008,
+      "step_time_ms_std": 32.58716105521161,
+      "tokens_per_sec": 2269.7811570530534
+    }
+  ]
+}

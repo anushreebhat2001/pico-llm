@@ -10,7 +10,7 @@ def load_points(path):
 
 def main():
     kv_path = "outputs/timing_sweep_kvcache_transformer.json"
-    lin_path = "outputs/timing_sweep_kvcache_transformer.json"
+    lin_path = "outputs/timing_sweep_linear_transformer.json"
 
     kv_L, kv_tps, kv_name = load_points(kv_path)
 

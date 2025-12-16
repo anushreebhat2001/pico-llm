@@ -10,9 +10,6 @@ import torch.nn.functional as F
 import os
 import json
 
-# We do not import numpy or scikit-learn, so we implement a naive k-means in pure PyTorch.
-# If you prefer scikit-learn, you can adapt the code.
-
 from datasets import load_dataset
 import tiktoken
 
@@ -20,105 +17,80 @@ import tiktoken
 # 1. Command-line arg parsing
 ################################################################################
 
+def _parse_int_list_csv(s: str):
+    if s is None or len(s.strip()) == 0:
+        return []
+    return [int(x.strip()) for x in s.split(",") if x.strip()]
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train multiple k-gram or sequence-based models on TinyStories and/or custom text files.")
+    parser = argparse.ArgumentParser(
+        description="pico-llm: models + timing sweep for KV-cache softmax vs DeltaKet."
+    )
+
+    # Original args kept (even if you won't use training)
     parser.add_argument("--input_files", nargs="*", default=None,
-                        help="Optional list of text files to mix in as data sources. Each line is one example (up to block_size).")
+                        help="Optional list of text files to mix in as data sources.")
     parser.add_argument("--tinystories_weight", type=float, default=0.5,
-                        help="Probability of sampling from TinyStories if present. Default=0.5. (set to 0.0 to skip TinyStories).")
-    parser.add_argument("--max_steps_per_epoch", type=int, default=None,
-                        help="If set, each epoch ends after this many steps (for quick tests).")
-    parser.add_argument("--num_inner_mlp_layers", type=int, default=1,
-                        help="Number of (Linear->SiLU) blocks inside the k-gram MLP. Default=1.")
-    parser.add_argument("--monosemantic_enabled", action="store_true",
-                        help="(DISABLED BY DEFAULT) If set, run the monosemantic analysis.")
-    parser.set_defaults(monosemantic_enabled=False)  # disable by default
+                        help="Probability of sampling from TinyStories if present.")
+    parser.add_argument("--max_steps_per_epoch", type=int, default=None)
+    parser.add_argument("--num_inner_mlp_layers", type=int, default=1)
+    parser.add_argument("--monosemantic_enabled", action="store_true")
+    parser.set_defaults(monosemantic_enabled=False)
 
-    # Additional hyperparams to mitigate slow k-gram
-    parser.add_argument("--kgram_k", type=int, default=3,
-                        help="Sliding window size for k-gram MLP. Smaller can reduce memory usage. Default=3.")
-    parser.add_argument("--kgram_chunk_size", type=int, default=1,
-                        help="Process k-gram timesteps in micro-batches. Default=1.")
+    parser.add_argument("--kgram_k", type=int, default=3)
+    parser.add_argument("--kgram_chunk_size", type=int, default=1)
 
-    parser.add_argument("--block_size", type=int, default=1024,
-                        help="Maximum sequence length for each example. Default=1024.")
+    parser.add_argument("--block_size", type=int, default=1024)
+    parser.add_argument("--embed_size", type=int, default=1024)
+    parser.add_argument("--prompt", type=str, default="Once upon a")
 
-    # New arguments:
-    parser.add_argument("--embed_size", type=int, default=1024,
-                        help="Dimension of the embedding layer for LSTM, MLP, etc. Default=1024.")
-    parser.add_argument("--prompt", type=str, default="Once upon a",
-                        help="Prompt used for generation. Default='Once upon a'.")
-
-    # Newly added device argument:
-    parser.add_argument("--device_id", type=str, default="cuda:0",
-                        help="Torch device identifier (default='cuda:0'). If CUDA is unavailable, fallback to 'cpu'.")
-
-    parser.add_argument("--test_fraction", type=float, default=0.1,
-                        help="Fraction of data to reserve for test split. Default=0.1.")
-
-    parser.add_argument("--output_dir", type=str, default="outputs",
-                        help="Directory where logs and model weights will be saved.")
+    parser.add_argument("--device_id", type=str, default="cuda:0")
+    parser.add_argument("--test_fraction", type=float, default=0.1)
+    parser.add_argument("--output_dir", type=str, default="outputs")
 
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
 
-    # Use positional embedding:
-    parser.add_argument("--use_position_emb", action="store_true",
-                        help="If set, the Transformer will add learned position embeddings. Disabled by default.")
+    parser.add_argument("--use_position_emb", action="store_true")
     parser.set_defaults(use_position_emb=False)
 
-    # Use post normalization
-    parser.add_argument("--use_post_norm", action="store_true",
-                        help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
+    parser.add_argument("--use_post_norm", action="store_true")
     parser.set_defaults(use_post_norm=False)
 
-    parser.add_argument("--compile", action="store_true",
-                    help="If set, torch.compile the Transformer for faster training/benchmarking (PyTorch 2.x).")
-    parser.set_defaults(compile=False)
-
-    parser.add_argument("--compile_mode", type=str, default="reduce-overhead",
-                    choices=["default", "reduce-overhead", "max-autotune"],
-                    help="torch.compile mode.")
-
-    # NEW: choose attention type for Transformer
-    parser.add_argument("--transformer_attention", type=str, default="softmax", choices=["softmax", "linear"],
-                        help="Transformer attention type: 'softmax' (with KV-cache) or 'linear' (causal linear attention). Default='softmax'.")
-
-    # Timing sweep flags (for ms/step vs seq_len benchmarking)
+    # =========================
+    # NEW: timing sweep switches
+    # =========================
     parser.add_argument("--run_timing_sweep", action="store_true",
-                        help="If set, run a timing sweep (training step time vs sequence length) and exit.")
+                        help="If set, run timing sweep and exit (no training).")
     parser.set_defaults(run_timing_sweep=False)
+
+    parser.add_argument("--transformer_attention", type=str, default="softmax",
+                        choices=["softmax", "linear"],
+                        help="softmax = standard attention with KV-cache. linear = DeltaKet attention with state-cache.")
+
     parser.add_argument("--sweep_seq_lens", type=str, default="64,128,256,512,1024",
-                        help="Comma-separated sequence lengths for timing sweep.")
-    parser.add_argument("--sweep_warmup_steps", type=int, default=5,
-                        help="Warmup steps per sequence length (not measured).")
+                        help="Comma-separated list of context lengths to benchmark.")
+
+    parser.add_argument("--sweep_warmup_steps", type=int, default=10,
+                        help="Warmup decode steps per sequence length.")
     parser.add_argument("--sweep_measured_steps", type=int, default=30,
-                        help="Measured steps per sequence length.")
-    parser.add_argument("--sweep_seed", type=int, default=1337,
-                        help="Random seed for timing sweep.")
-    parser.add_argument("--sweep_only_transformer", action="store_true",
-                        help="If set, timing sweep runs only the Transformer model (recommended).")
-    parser.set_defaults(sweep_only_transformer=True)
+                        help="Measured decode steps per sequence length.")
 
-    args = parser.parse_args()
-    return args
+    # Model shape knobs for sweep (so you can keep embed_size=1024 but adjust heads/blocks if needed)
+    parser.add_argument("--n_heads", type=int, default=8)
+    parser.add_argument("--n_blocks", type=int, default=6)
 
+    # DeltaKet stability
+    parser.add_argument("--deltaket_eps", type=float, default=1e-6)
+
+    return parser.parse_args()
 
 ################################################################################
-# 2. Data handling: entire sequences up to block_size => (seq_len, batch)
+# 2. Data handling (kept)
 ################################################################################
 
 class MixedSequenceDataset(torch.utils.data.Dataset):
-    """
-    We store two lists of entire token sequences:
-      - tinystories_seqs
-      - other_seqs
-    Each sequence is length <= block_size.
-
-    During __getitem__, we randomly pick from one list or the other with probability p_tiny.
-    Return that entire sequence as a 1D LongTensor.
-    """
     def __init__(self, tinystories_seqs, other_seqs, p_tiny: float):
         super().__init__()
         self.tinystories_seqs = tinystories_seqs
@@ -153,14 +125,7 @@ class MixedSequenceDataset(torch.utils.data.Dataset):
 
         return torch.tensor(seq, dtype=torch.long)
 
-
 def seq_collate_fn(batch):
-    """
-    batch: list of 1D LongTensors of various lengths [<= block_size].
-    1) find max length
-    2) pad with zeros
-    3) shape => (max_len, batch_size)
-    """
     max_len = max(len(seq) for seq in batch)
     batch_size = len(batch)
 
@@ -171,35 +136,27 @@ def seq_collate_fn(batch):
 
     return padded
 
-
 ################################################################################
-# 3. K-gram MLP in a sequence-to-sequence approach
+# 3. Loss (kept)
 ################################################################################
 
 def compute_next_token_loss(logits, tokens):
-    """
-    logits: (seq_len, batch, vocab_size)
-    tokens: (seq_len, batch)
-    Next-token prediction => we shift target by 1.
-    """
     seq_len, batch_size, vocab_size = logits.shape
     if seq_len < 2:
         return torch.tensor(0.0, device=logits.device, requires_grad=True)
 
-    preds = logits[:-1, :, :]  # (seq_len-1, batch, vocab_size)
-    gold = tokens[1:, :]       # (seq_len-1, batch)
+    preds = logits[:-1, :, :]
+    gold = tokens[1:, :]
 
     preds = preds.reshape(-1, vocab_size)
     gold = gold.reshape(-1)
     return F.cross_entropy(preds, gold)
 
+################################################################################
+# 4. (Kept) KGram / LSTM
+################################################################################
 
 class KGramMLPSeqModel(nn.Module):
-    """
-    For each position t in [0..seq_len-1], gather the last k tokens => embeddings => MLP => logits.
-    Return (seq_len, batch, vocab_size).
-    """
-
     def __init__(self, vocab_size, k=3, embed_size=1024, num_inner_layers=1, chunk_size=1):
         super().__init__()
         self.k = k
@@ -208,36 +165,25 @@ class KGramMLPSeqModel(nn.Module):
         self.num_inner_layers = num_inner_layers
         self.chunk_size = chunk_size
 
-        # NEW: learn embeddings instead of one-hot
         self.embedding = nn.Embedding(vocab_size, embed_size)
 
-        # Input is concatenated embeddings of k tokens: dimension = k * embed_size
         in_dim = self.k * self.embed_size
         hidden_dim = self.embed_size
 
         layers = []
         if self.num_inner_layers <= 0:
-            # Degenerate case: direct projection to vocab
             layers.append(nn.Linear(in_dim, self.vocab_size))
         else:
-            # First (Linear->SiLU) block
             layers.append(nn.Linear(in_dim, hidden_dim))
             layers.append(nn.SiLU())
-            # Additional (Linear->SiLU) blocks
             for _ in range(self.num_inner_layers - 1):
                 layers.append(nn.Linear(hidden_dim, hidden_dim))
                 layers.append(nn.SiLU())
-            # Final projection to vocabulary logits
             layers.append(nn.Linear(hidden_dim, self.vocab_size))
 
         self.net = nn.Sequential(*layers)
 
     def forward(self, tokens_seq):
-        """
-        tokens_seq: (seq_len, batch)
-        return: (seq_len, batch, vocab_size)
-        We'll do a loop over time steps. chunk_size can reduce overhead.
-        """
         seq_len, batch_size = tokens_seq.shape
         device = tokens_seq.device
         outputs = []
@@ -249,43 +195,26 @@ class KGramMLPSeqModel(nn.Module):
             for t in range(start, end):
                 batch_logits = []
                 for b in range(batch_size):
-                    # Collect k previous tokens, padding with 0 at the left if needed
                     if t < self.k:
                         needed = self.k - t
                         context_ids = [0] * needed + tokens_seq[:t, b].tolist()
                     else:
                         context_ids = tokens_seq[t-self.k:t, b].tolist()
 
-                    # context_ids: list of length k
-                    context_ids_tensor = torch.tensor(
-                        context_ids,
-                        dtype=torch.long,
-                        device=device,
-                    )  # (k,)
-
-                    # NEW: lookup embeddings for the k tokens
-                    context_emb = self.embedding(context_ids_tensor)  # (k, embed_size)
-
-                    # Flatten k embeddings into a single vector
-                    context_flat = context_emb.view(1, -1)  # (1, k * embed_size)
-
-                    logits_b = self.net(context_flat)  # (1, vocab_size)
+                    context_ids_tensor = torch.tensor(context_ids, dtype=torch.long, device=device)
+                    context_emb = self.embedding(context_ids_tensor)
+                    context_flat = context_emb.view(1, -1)
+                    logits_b = self.net(context_flat)
                     batch_logits.append(logits_b)
 
-                # stack batch dimension
-                block_outputs.append(torch.cat(batch_logits, dim=0).unsqueeze(0))  # (1, batch, vocab_size)
+                block_outputs.append(torch.cat(batch_logits, dim=0).unsqueeze(0))
 
-            block_outputs = torch.cat(block_outputs, dim=0)  # (chunk_size, batch, vocab_size)
+            block_outputs = torch.cat(block_outputs, dim=0)
             outputs.append(block_outputs)
             start = end
 
-        outputs = torch.cat(outputs, dim=0)  # (seq_len, batch, vocab_size)
+        outputs = torch.cat(outputs, dim=0)
         return outputs
-
-
-################################################################################
-# 4. LSTM-based seq2seq
-################################################################################
 
 class LSTMSeqModel(nn.Module):
     def __init__(self, vocab_size, embed_size=1024, hidden_size=1024):
@@ -299,19 +228,14 @@ class LSTMSeqModel(nn.Module):
         self.linear = nn.Linear(hidden_size, vocab_size)
 
     def forward(self, tokens_seq):
-        """
-        tokens_seq: (seq_len, batch)
-        => (seq_len, batch, vocab_size)
-        """
-        emb = self.embedding(tokens_seq)   # (seq_len, batch, embed)
+        emb = self.embedding(tokens_seq)
         self.lstm.flatten_parameters()
-        out, _ = self.lstm(emb)           # (seq_len, batch, hidden)
-        logits = self.linear(out)         # (seq_len, batch, vocab_size)
+        out, _ = self.lstm(emb)
+        logits = self.linear(out)
         return logits
 
-
 ################################################################################
-# 5. Transformer (softmax KV-cache OR causal linear attention)
+# 5. Transformer
 ################################################################################
 
 class RMSNorm(nn.Module):
@@ -321,12 +245,13 @@ class RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
-        # x: (..., dim)
         norm_x = x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
         return self.weight * norm_x
 
-
-class MultiHeadSelfAttention(nn.Module):
+# ---------------------------
+# Softmax attention (original)
+# ---------------------------
+class MultiHeadSelfAttentionSoftmax(nn.Module):
     def __init__(self, d_model, n_heads):
         super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
@@ -340,45 +265,37 @@ class MultiHeadSelfAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
 
     def forward(self, x, mask=None, past_k=None, past_v=None):
-        """
-        Softmax attention with optional KV-cache.
-        x: (batch, seq_len, d_model)
-        mask: (1, 1, seq_len, total_keys) causal mask (query_len x (past_len + query_len))
-        past_k, past_v: (batch, heads, past_len, head_dim) if provided
-        """
         B, T, C = x.shape
         H = self.n_heads
         D = self.head_dim
 
-        q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
-        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
-        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+        q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)
 
         if past_k is not None:
             k = torch.cat([past_k, k], dim=2)
             v = torch.cat([past_v, v], dim=2)
 
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)  # (B, H, T, T_total)
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)
 
         if mask is not None:
             attn_scores = attn_scores.masked_fill(mask == 0, float("-inf"))
 
-        attn_weights = torch.softmax(attn_scores, dim=-1)  # (B, H, T, T_total)
-        attn_output = torch.matmul(attn_weights, v)        # (B, H, T, D)
+        attn_weights = torch.softmax(attn_scores, dim=-1)
+        attn_output = torch.matmul(attn_weights, v)
 
         attn_output = attn_output.transpose(1, 2).contiguous().view(B, T, C)
         attn_output = self.out_proj(attn_output)
         return attn_output, attn_weights, k, v
 
-
-class LinearCausalAttention(nn.Module):
-    """
-    Causal linear attention that avoids building a (B,H,T,D,D) tensor (the OOM you saw).
-    We keep running accumulators S = sum_{i<=t} (k_i outer v_i) and Z = sum_{i<=t} k_i,
-    and compute each timestep output with a python loop over T.
-
-    Feature map: phi(x) = ELU(x) + 1 (positive).
-    """
+# ---------------------------------------------
+# DeltaKet attention (linear) with state-cache
+# cache per layer: (S, Z)
+#   S: (B, H, D, D)
+#   Z: (B, H, D)
+# ---------------------------------------------
+class MultiHeadSelfAttentionDeltaKet(nn.Module):
     def __init__(self, d_model, n_heads, eps=1e-6):
         super().__init__()
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
@@ -393,33 +310,29 @@ class LinearCausalAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
 
     def _phi(self, x):
+        # positive feature map
         return F.elu(x) + 1.0
 
     def forward(self, x, mask=None, past_k=None, past_v=None):
-        """
-        mask/past_k/past_v are ignored for simplicity (training uses causal by construction here).
-        x: (batch, seq_len, d_model)
-        Returns:
-          attn_output: (batch, seq_len, d_model)
-          attn_weights: empty tensor (for logging compatibility)
-          new_k, new_v: None, None (no KV-cache for linear path)
-        """
+        # mask ignored; causality is by recurrence
         B, T, C = x.shape
         H = self.n_heads
         D = self.head_dim
-        device = x.device
-        dtype = x.dtype
+        device, dtype = x.device, x.dtype
 
-        q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
-        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
-        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+        q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)
+        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)
+        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)
 
         q = self._phi(q)
         k = self._phi(k)
 
-        # Running accumulators
-        S = torch.zeros((B, H, D, D), device=device, dtype=dtype)
-        Z = torch.zeros((B, H, D), device=device, dtype=dtype)
+        if past_k is not None and past_v is not None:
+            S = past_k  # (B,H,D,D)
+            Z = past_v  # (B,H,D)
+        else:
+            S = torch.zeros((B, H, D, D), device=device, dtype=dtype)
+            Z = torch.zeros((B, H, D), device=device, dtype=dtype)
 
         out = torch.empty((B, H, T, D), device=device, dtype=dtype)
 
@@ -427,34 +340,39 @@ class LinearCausalAttention(nn.Module):
             kt = k[:, :, t, :]  # (B,H,D)
             vt = v[:, :, t, :]  # (B,H,D)
 
-            # S += kt ⊗ vt  -> (B,H,D,D)
-            S = S + kt.unsqueeze(-1) * vt.unsqueeze(-2)
-            Z = Z + kt
+            # predict v_hat from current memory
+            num_hat = torch.einsum("bhd,bhde->bhe", kt, S)                 # (B,H,D)
+            den_hat = torch.einsum("bhd,bhd->bh", kt, Z).unsqueeze(-1)     # (B,H,1)
+            v_hat = num_hat / (den_hat + self.eps)
 
-            qt = q[:, :, t, :]  # (B,H,D)
+            dv = vt - v_hat
+            S = S + kt.unsqueeze(-1) * dv.unsqueeze(-2)                    # (B,H,D,D)
+            Z = Z + kt                                                     # (B,H,D)
 
-            # numerator: qt @ S  -> (B,H,D)
+            qt = q[:, :, t, :]
             num = torch.einsum("bhd,bhde->bhe", qt, S)
-            den = torch.einsum("bhd,bhd->bh", qt, Z).unsqueeze(-1)  # (B,H,1)
+            den = torch.einsum("bhd,bhd->bh", qt, Z).unsqueeze(-1)
             out[:, :, t, :] = num / (den + self.eps)
 
         attn_output = out.transpose(1, 2).contiguous().view(B, T, C)
         attn_output = self.out_proj(attn_output)
 
-        attn_weights = torch.empty(0, device=device)  # placeholder for logging
-        return attn_output, attn_weights, None, None
-
+        attn_weights = torch.empty(0, device=device)  # placeholder
+        return attn_output, attn_weights, S, Z
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False, attention_type="softmax"):
+    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False, attention_impl="softmax", deltaket_eps=1e-6):
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
-        if attention_type == "linear":
-            self.attn = LinearCausalAttention(d_model, n_heads)
-        else:
-            self.attn = MultiHeadSelfAttention(d_model, n_heads)
         self.mlp_norm = RMSNorm(d_model)
         self.use_post_norm = use_post_norm
+
+        if attention_impl == "softmax":
+            self.attn = MultiHeadSelfAttentionSoftmax(d_model, n_heads)
+        elif attention_impl == "linear":
+            self.attn = MultiHeadSelfAttentionDeltaKet(d_model, n_heads, eps=deltaket_eps)
+        else:
+            raise ValueError(f"Unknown attention_impl={attention_impl}")
 
         hidden_dim = int(d_model * mlp_ratio)
         self.mlp = nn.Sequential(
@@ -464,16 +382,12 @@ class TransformerBlock(nn.Module):
         )
 
     def forward(self, x, mask=None, collect_attn=False, attn_list=None, act_list=None, past_k=None, past_v=None):
-
-        # Post normalization
         if self.use_post_norm:
             attn_out, attn_weights, new_k, new_v = self.attn(x, mask=mask, past_k=past_k, past_v=past_v)
             x = self.attn_norm(x + attn_out)
 
             mlp_out = self.mlp(x)
             x = self.mlp_norm(x + mlp_out)
-
-        # Pre-normalization (default)
         else:
             h = self.attn_norm(x)
             attn_out, attn_weights, new_k, new_v = self.attn(h, mask=mask, past_k=past_k, past_v=past_v)
@@ -484,14 +398,25 @@ class TransformerBlock(nn.Module):
             x = x + mlp_out
 
         if collect_attn and (attn_list is not None) and (act_list is not None):
-            attn_list.append(attn_weights.detach().cpu() if isinstance(attn_weights, torch.Tensor) else torch.empty(0))
+            # For DeltaKet, attn_weights is an empty placeholder; still safe.
+            attn_list.append(attn_weights.detach().cpu() if attn_weights.numel() > 0 else attn_weights.cpu())
             act_list.append(mlp_out.detach().cpu())
 
         return x, new_k, new_v
 
-
 class TransformerModel(nn.Module):
-    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024, use_position_emb=False, use_post_norm=False, attention_type="softmax"):
+    def __init__(
+        self,
+        vocab_size=50257,
+        d_model=1024,
+        n_heads=2,
+        n_blocks=4,
+        block_size=1024,
+        use_position_emb=False,
+        use_post_norm=False,
+        attention_impl="softmax",
+        deltaket_eps=1e-6,
+    ):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
@@ -500,70 +425,76 @@ class TransformerModel(nn.Module):
         self.block_size = block_size
         self.use_position_emb = use_position_emb
         self.use_post_norm = use_post_norm
-        self.attention_type = attention_type
-
-        # Only softmax path supports KV-cache (kept as-is)
-        self.supports_kv_cache = (self.attention_type == "softmax")
+        self.attention_impl = attention_impl
 
         self.token_emb = nn.Embedding(vocab_size, d_model)
-        if self.use_position_emb:
-            self.pos_emb = nn.Embedding(block_size, d_model)
-        else:
-            self.pos_emb = None
+        self.pos_emb = nn.Embedding(block_size, d_model) if self.use_position_emb else None
 
-        self.blocks = nn.ModuleList(
-            [TransformerBlock(d_model=d_model, n_heads=n_heads, mlp_ratio=4.0, use_post_norm=use_post_norm, attention_type=attention_type) for _ in range(n_blocks)]
-        )
+        self.blocks = nn.ModuleList([
+            TransformerBlock(
+                d_model=d_model,
+                n_heads=n_heads,
+                mlp_ratio=4.0,
+                use_post_norm=use_post_norm,
+                attention_impl=attention_impl,
+                deltaket_eps=deltaket_eps,
+            ) for _ in range(n_blocks)
+        ])
+
         self.final_norm = RMSNorm(d_model)
         self.unembed = nn.Linear(d_model, vocab_size, bias=False)
 
-        # Causal mask buffer for maximum block_size (softmax attention only)
-        mask = torch.tril(torch.ones(block_size, block_size)).unsqueeze(0).unsqueeze(0)  # (1,1,B,B)
+        # Softmax-only causal mask buffer
+        mask = torch.tril(torch.ones(block_size, block_size)).unsqueeze(0).unsqueeze(0)
         self.register_buffer("causal_mask", mask, persistent=False)
 
-        # For logging attention & activations
         self.attention_matrices = []
         self.activation_outputs = []
 
-    def forward(self, tokens_seq, collect_attn=False, past_kv=None, return_kv=False):
+    def forward(self, tokens_seq, collect_attn=False, past_kv=None, return_kv=False, past_len: int = 0):
         """
         tokens_seq: (seq_len, batch)
-        collect_attn: store attn/act tensors for inspection (slow)
-        past_kv: optional list of (k,v) per layer for generation (softmax only)
-        return_kv: if True, also return new_kv caches (softmax only)
-
-        Returns:
-          if return_kv == False: logits (seq_len, batch, vocab_size)
-          if return_kv == True:  (logits, new_kv)
+        past_kv:
+          - softmax: list[(K,V)] where K,V are (B,H,past_T,D)
+          - linear : list[(S,Z)] where S is (B,H,D,D) and Z is (B,H,D)
+        past_len:
+          - softmax: inferred from K.size(2)
+          - linear : must be passed/maintained externally for pos_emb correctness
         """
         seq_len, batch_size = tokens_seq.shape
         device = tokens_seq.device
 
-        past_len = 0
-        if self.supports_kv_cache:
+        # determine past_len for softmax from cached K
+        if self.attention_impl == "softmax":
             if past_kv is not None and len(past_kv) > 0 and past_kv[0][0] is not None:
-                past_len = past_kv[0][0].size(2)  # (B, H, past_T, D)
+                past_len = past_kv[0][0].size(2)
+            else:
+                past_len = 0
 
-        positions = torch.arange(past_len, past_len + seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
-
-        x = self.token_emb(tokens_seq.t())
-
+        # positions (only if pos_emb)
+        positions = None
         if self.pos_emb is not None:
-            x = x + self.pos_emb(positions)
+            positions = torch.arange(past_len, past_len + seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
+
+        x = self.token_emb(tokens_seq.t())  # (B, T, C)
+        if self.pos_emb is not None:
+            # clamp positions in case someone passes seq_len > block_size
+            pos_clamped = torch.clamp(positions, 0, self.block_size - 1)
+            x = x + self.pos_emb(pos_clamped)
 
         if collect_attn:
             self.attention_matrices = []
             self.activation_outputs = []
 
+        # mask used only for softmax attention
         mask = None
-        new_kv = []
-
-        if self.supports_kv_cache:
+        if self.attention_impl == "softmax":
             total_k = past_len + seq_len
             mask = self.causal_mask[:, :, :seq_len, :total_k]
 
+        new_kv = []
         for i, block in enumerate(self.blocks):
-            past_k, past_v = (past_kv[i] if (past_kv is not None and self.supports_kv_cache) else (None, None))
+            past_k, past_v = (past_kv[i] if past_kv is not None else (None, None))
             x, k, v = block(
                 x,
                 mask=mask,
@@ -573,179 +504,33 @@ class TransformerModel(nn.Module):
                 past_k=past_k,
                 past_v=past_v,
             )
-            if self.supports_kv_cache:
-                new_kv.append((k, v))
+            new_kv.append((k, v))
 
         x = self.final_norm(x)
-        logits = self.unembed(x)  # (batch, seq_len, vocab_size)
-        logits = logits.transpose(0, 1)  # (seq_len, batch, vocab_size)
+        logits = self.unembed(x)            # (B, T, V)
+        logits = logits.transpose(0, 1)     # (T, B, V)
 
-        if return_kv and self.supports_kv_cache:
-            return logits, new_kv
-        elif return_kv and (not self.supports_kv_cache):
-            return logits, None
+        new_past_len = past_len + seq_len
+
+        if return_kv:
+            return logits, new_kv, new_past_len
         else:
             return logits
 
-
 ################################################################################
-# Timing sweep (training step time vs seq_len)
-################################################################################
-
-def _sync_if_cuda(device):
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-def benchmark_train_step(model, vocab_size, device, seq_len, batch_size, lr, warmup_steps, measured_steps):
-    model.train()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    times_ms = []
-
-    for _ in range(warmup_steps):
-        tokens = torch.randint(0, vocab_size, (seq_len, batch_size), device=device, dtype=torch.long)
-        logits = model(tokens)
-        loss = compute_next_token_loss(logits, tokens)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-    _sync_if_cuda(device)
-
-    for _ in range(measured_steps):
-        tokens = torch.randint(0, vocab_size, (seq_len, batch_size), device=device, dtype=torch.long)
-        _sync_if_cuda(device)
-        t0 = time.perf_counter()
-
-        logits = model(tokens)
-        loss = compute_next_token_loss(logits, tokens)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        _sync_if_cuda(device)
-        t1 = time.perf_counter()
-        times_ms.append((t1 - t0) * 1000.0)
-
-    mean_ms = sum(times_ms) / len(times_ms)
-    if len(times_ms) > 1:
-        var = sum((x - mean_ms) ** 2 for x in times_ms) / (len(times_ms) - 1)
-        std_ms = math.sqrt(var)
-    else:
-        std_ms = 0.0
-
-    tokens_per_sec = (seq_len * batch_size) / (mean_ms / 1000.0)
-    return mean_ms, std_ms, tokens_per_sec
-
-def maybe_compile(model, device, do_compile: bool, mode: str = "reduce-overhead"):
-    # Only worth compiling on CUDA; CPU compile is often meh.
-    if (not do_compile) or (device.type != "cuda"):
-        return model
-
-    if not hasattr(torch, "compile"):
-        print("torch.compile not available (need PyTorch 2.x). Skipping compile.")
-        return model
-
-    # Helps Inductor pick faster matmul kernels
-    torch.set_float32_matmul_precision("high")
-
-    try:
-        model = torch.compile(model, mode=mode, fullgraph=False)
-        print(f"[compile] Compiled model with mode='{mode}'.")
-    except Exception as e:
-        print(f"[compile] Compile failed, running eager. Error: {e}")
-    return model
-
-def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
-    random.seed(args.sweep_seed)
-    torch.manual_seed(args.sweep_seed)
-
-    seq_lens = [int(x.strip()) for x in args.sweep_seq_lens.split(",") if x.strip()]
-    sweep_results = {
-        "benchmark": "train_step_time_vs_seq_len",
-        "model": "kvcache_transformer",
-        "attention": args.transformer_attention,
-        "device": str(device),
-        "embed_size": embed_size,
-        "batch_size": args.batch_size,
-        "learning_rate": args.learning_rate,
-        "warmup_steps": args.sweep_warmup_steps,
-        "measured_steps": args.sweep_measured_steps,
-        "points": [],
-    }
-
-    # Ensure model block_size can handle the max seq_len for mask/pos_emb
-    max_seq = max(seq_lens)
-    sweep_block_size = max(block_size, max_seq)
-
-    kv_transformer = TransformerModel(
-        vocab_size=vocab_size,
-        d_model=embed_size,
-        n_heads=8,
-        n_blocks=6,
-        block_size=sweep_block_size,
-        use_position_emb=args.use_position_emb,
-        use_post_norm=args.use_post_norm,
-        attention_type=args.transformer_attention,
-    ).to(device)
-
-    kv_transformer = maybe_compile(kv_transformer, device, args.compile, args.compile_mode)
-
-    for L in seq_lens:
-        mean_ms, std_ms, tps = benchmark_train_step(
-            model=kv_transformer,
-            vocab_size=vocab_size,
-            device=device,
-            seq_len=L,
-            batch_size=args.batch_size,
-            lr=args.learning_rate,
-            warmup_steps=args.sweep_warmup_steps,
-            measured_steps=args.sweep_measured_steps,
-        )
-        sweep_results["points"].append({
-            "seq_len": L,
-            "step_time_ms_mean": mean_ms,
-            "step_time_ms_std": std_ms,
-            "tokens_per_sec": tps
-        })
-        print(f"[timing_sweep] seq_len={L} mean_ms={mean_ms:.2f} std_ms={std_ms:.2f} tokens/s={tps:.1f}")
-
-    sweep_path = os.path.join(args.output_dir, f"timing_sweep_{args.transformer_attention}_transformer.json")
-    with open(sweep_path, "w", encoding="utf-8") as f:
-        json.dump(sweep_results, f, indent=2)
-    print(f"[timing_sweep] Saved timing sweep results to {sweep_path}")
-
-
-################################################################################
-# 6. K-Means Monosemantic (DISABLED by default)
-################################################################################
-
-def monosemantic_analysis_for_token(token_id, model, enc, device="cpu", top_n=5):
-    # Stub: return empty list; hook for your own analysis later.
-    return []
-
-
-################################################################################
-# 7. Single code path for text generation
+# 6. Generation (kept; updated to support linear past_len)
 ################################################################################
 
 def nucleus_sampling(logits, p=0.95):
-    """
-    logits: 1D tensor (vocab_size,)
-    p: float in (0,1]; cumulative probability mass to keep.
-    Implements top-p (nucleus) sampling.
-    """
     probs = torch.softmax(logits, dim=-1)
 
     if p >= 1.0:
-        # Pure sampling from full distribution
         idx = torch.multinomial(probs, num_samples=1)
         return idx.item()
 
-    # Sort probabilities in descending order
     sorted_probs, sorted_indices = torch.sort(probs, descending=True)
     cum_probs = torch.cumsum(sorted_probs, dim=-1)
 
-    # Smallest k such that cumulative probability >= p
     k = torch.searchsorted(cum_probs, torch.tensor(p, device=logits.device)).item() + 1
     k = max(1, min(k, sorted_probs.size(0)))
 
@@ -757,271 +542,188 @@ def nucleus_sampling(logits, p=0.95):
     chosen_token = truncated_indices[sampled_idx].item()
     return chosen_token
 
-
-def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
-                  top_p=None,
-                  monosemantic_info=None,
-                  do_monosemantic=False):
-    """
-    - Softmax Transformer uses KV-cache to avoid recomputing past.
-    - Linear Transformer (and others) recompute on the full prefix each step.
-    """
+def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu", top_p=None):
     was_training = model.training
     model.eval()
 
     with torch.no_grad():
         context_tokens = enc.encode(init_text)
-        annotation_list = []
 
-        past_kv = None  # for TransformerModel KV cache (softmax only)
+        past_kv = None
+        past_len = 0
 
-        for step_i in range(max_new_tokens):
-            if isinstance(model, TransformerModel) and getattr(model, "supports_kv_cache", False):
-                # Use cache: feed full context on first step, then 1 token at a time
+        for _ in range(max_new_tokens):
+            if isinstance(model, TransformerModel):
                 if past_kv is None:
-                    seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
+                    seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)
                 else:
-                    seq_tensor = torch.tensor([context_tokens[-1]], dtype=torch.long, device=device).unsqueeze(1)  # (1,1)
+                    seq_tensor = torch.tensor([context_tokens[-1]], dtype=torch.long, device=device).unsqueeze(1)
 
-                logits_seq, past_kv = model(seq_tensor, past_kv=past_kv, return_kv=True)
-                next_logits = logits_seq[-1, 0, :]  # (vocab,)
+                logits_seq, past_kv, past_len = model(seq_tensor, past_kv=past_kv, return_kv=True, past_len=past_len)
+                next_logits = logits_seq[-1, 0, :]
             else:
-                # Generic path: recompute on whole prefix
-                seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
-                logits_seq = model(seq_tensor)  # (L,1,V)
+                seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)
+                logits_seq = model(seq_tensor)
                 next_logits = logits_seq[-1, 0, :]
 
-            if top_p is None:
-                chosen_token = torch.argmax(next_logits).item()
-            else:
-                chosen_token = nucleus_sampling(next_logits, p=top_p)
-
-            context_tokens.append(chosen_token)
-
-            if do_monosemantic and monosemantic_info is not None:
-                neighbors = monosemantic_analysis_for_token(
-                    chosen_token, model, enc, device=device, top_n=5
-                )
-                annotation_list.append((chosen_token, neighbors))
-            else:
-                annotation_list.append((chosen_token, []))
+            chosen = torch.argmax(next_logits).item() if top_p is None else nucleus_sampling(next_logits, p=top_p)
+            context_tokens.append(chosen)
 
     model.train(was_training)
-
-    final_text = enc.decode(context_tokens)
-    prefix_text = enc.decode(context_tokens[:-max_new_tokens])
-    annotated_strs = [prefix_text]
-    for (tid, neighs) in annotation_list:
-        token_str = enc.decode([tid])
-        if neighs:
-            neighbor_strs = [f"{enc.decode([x[1]])}" for x in neighs]
-            annotated = f"{token_str}[NN={neighbor_strs}]"
-        else:
-            annotated = token_str
-        annotated_strs.append(annotated)
-
-    annotated_text = "".join(annotated_strs)
-    return final_text, annotated_text
-
+    return enc.decode(context_tokens)
 
 ################################################################################
-# 8. Training
+# 7. Timing sweep
 ################################################################################
 
-def train_one_model(model,
-                    train_loader,
-                    test_loader,
-                    epochs,
-                    model_name,
-                    device,
-                    lr=1e-3,
-                    log_steps=100,
-                    sample_interval=30,
-                    max_steps_per_epoch=None,
-                    enc=None,
-                    monosemantic_info=None,
-                    prompt="Once upon a",
-                    top_p_values=None):
+def _sync_if_cuda(device: torch.device):
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+def run_timing_sweep(args, device, vocab_size):
     """
-    We add `prompt` as an explicit argument so we can pass it down from main().
+    Measures decode-time per token as a function of context length.
+
+    Setup per seq_len L:
+      1) "prefill": run model on random tokens of length L, get past_kv
+      2) "decode": repeatedly feed 1 token using cache, measure ms/token
+
+    For softmax KV-cache:
+      - cache grows with L + decode steps, so decode time increases with L
+    For DeltaKet:
+      - cache is fixed-size state, decode time ~ constant with L
     """
+    os.makedirs(args.output_dir, exist_ok=True)
 
-    if top_p_values is None:
-        top_p_values = [0.2, 0.5, 0.75, 0.95, 1.0]
+    seq_lens = _parse_int_list_csv(args.sweep_seq_lens)
+    warmup = args.sweep_warmup_steps
+    measured = args.sweep_measured_steps
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    model = TransformerModel(
+        vocab_size=vocab_size,
+        d_model=args.embed_size,
+        n_heads=args.n_heads,
+        n_blocks=args.n_blocks,
+        block_size=max(args.block_size, max(seq_lens) + measured + 8),
+        use_position_emb=args.use_position_emb,
+        use_post_norm=args.use_post_norm,
+        attention_impl=args.transformer_attention,
+        deltaket_eps=args.deltaket_eps,
+    ).to(device)
 
-    start_time = time.time()
-    next_sample_time = start_time
-    global_step = 0
+    model.eval()
 
-    train_losses_per_epoch = []
-    test_losses_per_epoch = []
-    generations_per_epoch = []
+    results = {
+        "attention": args.transformer_attention,
+        "use_position_emb": args.use_position_emb,
+        "embed_size": args.embed_size,
+        "n_heads": args.n_heads,
+        "n_blocks": args.n_blocks,
+        "warmup_steps": warmup,
+        "measured_steps": measured,
+        "seq_lens": seq_lens,
+        "rows": []
+    }
 
-    for epoch in range(1, epochs + 1):
-        model.train()
-        total_loss = 0.0
-        partial_loss = 0.0
-        partial_count = 0
+    print("\n=== TIMING SWEEP ===")
+    print(f"attention={args.transformer_attention}, device={device}, pos_emb={args.use_position_emb}")
+    print("Columns: L, prefill_ms, decode_ms_per_token, cache_type")
 
-        step_in_epoch = 0
-        epoch_train_losses = []
+    for L in seq_lens:
+        # random context tokens
+        ctx = torch.randint(low=0, high=vocab_size, size=(L, 1), dtype=torch.long, device=device)
+        past_kv = None
+        past_len = 0
 
-        for batch_idx, batch_tokens in enumerate(train_loader, start=1):
-            step_in_epoch += 1
-            global_step += 1
+        # prefill timing
+        _sync_if_cuda(device)
+        t0 = time.perf_counter()
+        with torch.no_grad():
+            _, past_kv, past_len = model(ctx, past_kv=past_kv, return_kv=True, past_len=past_len)
+        _sync_if_cuda(device)
+        prefill_ms = (time.perf_counter() - t0) * 1000.0
 
-            batch_tokens = batch_tokens.to(device)  # (seq_len, batch)
-
-            logits = model(batch_tokens)  # (seq_len, batch, vocab_size)  [unchanged API]
-            loss = compute_next_token_loss(logits, batch_tokens)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            loss_val = loss.item()
-            total_loss += loss_val
-            partial_loss += loss_val
-            partial_count += 1
-            epoch_train_losses.append(loss_val)
-
-            if batch_idx % log_steps == 0:
-                avg_part_loss = partial_loss / partial_count
-                print(f"[{model_name}] Epoch {epoch}/{epochs}, "
-                      f"Step {batch_idx}/{len(train_loader)} (global step: {global_step}) "
-                      f"Partial Avg Loss: {avg_part_loss:.4f}")
-                partial_loss = 0.0
-                partial_count = 0
-
-            current_time = time.time()
-            if current_time >= next_sample_time and enc is not None:
-                with torch.no_grad():
-                    print(f"\n[{model_name}] Generating sample text (greedy) at epoch={epoch}, step={batch_idx}...")
-                    text_greedy, ann_greedy = generate_text(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=None,
-                        monosemantic_info=monosemantic_info,
-                        do_monosemantic=(monosemantic_info is not None)
-                    )
-                    print(f" Greedy Sample: {text_greedy}")
-                    print(f" Annotated: {ann_greedy}\n")
-
-                    print(f"[{model_name}] Generating sample text (top-p=0.95) at epoch={epoch}, step={batch_idx}...")
-                    text_topp, ann_topp = generate_text(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=0.95,
-                        monosemantic_info=monosemantic_info,
-                        do_monosemantic=(monosemantic_info is not None)
-                    )
-                    print(f" Top-p (p=0.95) Sample: {text_topp}")
-                    print(f" Annotated: {ann_topp}\n")
-
-                    # third generation => top-p=1.0 => full distribution random sampling
-                    print(f"[{model_name}] Generating sample text (top-p=1.0) at epoch={epoch}, step={batch_idx}...")
-                    text_topp1, ann_topp1 = generate_text(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=1.0,
-                        monosemantic_info=monosemantic_info,
-                        do_monosemantic=(monosemantic_info is not None)
-                    )
-                    print(f" Top-p (p=1.0) Sample: {text_topp1}")
-                    print(f" Annotated: {ann_topp1}\n")
-
-                next_sample_time = current_time + sample_interval
-
-            if max_steps_per_epoch is not None and step_in_epoch >= max_steps_per_epoch:
-                print(f"[{model_name}] Reached max_steps_per_epoch={max_steps_per_epoch}, ending epoch {epoch} early.")
-                break
-
-        avg_loss = total_loss / step_in_epoch
-        print(f"[{model_name}] *** End of Epoch {epoch} *** Avg Train Loss: {avg_loss:.4f}")
-        train_losses_per_epoch.append(epoch_train_losses)
-
-        # -------------------------------
-        # Evaluation on test set
-        # -------------------------------
-        epoch_test_losses = []
-        if test_loader is not None:
-            model.eval()
+        # warmup decode
+        for _ in range(warmup):
+            tok = torch.randint(low=0, high=vocab_size, size=(1, 1), dtype=torch.long, device=device)
             with torch.no_grad():
-                for batch_tokens in test_loader:
-                    batch_tokens = batch_tokens.to(device)
-                    logits = model(batch_tokens)
-                    loss = compute_next_token_loss(logits, batch_tokens)
-                    epoch_test_losses.append(loss.item())
-            if len(epoch_test_losses) > 0:
-                avg_test_loss = sum(epoch_test_losses) / len(epoch_test_losses)
-            else:
-                avg_test_loss = float("nan")
-            print(f"[{model_name}] Epoch {epoch}/{epochs} *** Avg Test Loss: {avg_test_loss:.4f}")
-        test_losses_per_epoch.append(epoch_test_losses)
+                _, past_kv, past_len = model(tok, past_kv=past_kv, return_kv=True, past_len=past_len)
 
-        # -------------------------------
-        # Generations for different p-values for this epoch
-        # -------------------------------
-        epoch_generations = {}
-        if enc is not None:
+        # measured decode
+        _sync_if_cuda(device)
+        t1 = time.perf_counter()
+        for _ in range(measured):
+            tok = torch.randint(low=0, high=vocab_size, size=(1, 1), dtype=torch.long, device=device)
             with torch.no_grad():
-                # Greedy
-                text_greedy, _ = generate_text(
-                    model, enc, prompt, max_new_tokens=20, device=device,
-                    top_p=None
-                )
-                epoch_generations["greedy"] = text_greedy
-                # Different nucleus sampling values
-                for pval in top_p_values:
-                    text_p, _ = generate_text(
-                        model, enc, prompt, max_new_tokens=20, device=device,
-                        top_p=pval
-                    )
-                    epoch_generations[str(pval)] = text_p
+                _, past_kv, past_len = model(tok, past_kv=past_kv, return_kv=True, past_len=past_len)
+        _sync_if_cuda(device)
+        dt = time.perf_counter() - t1
+        decode_ms_per_tok = (dt / measured) * 1000.0
 
-        generations_per_epoch.append(epoch_generations)
+        row = {
+            "L": L,
+            "prefill_ms": prefill_ms,
+            "decode_ms_per_token": decode_ms_per_tok,
+            "cache": "KV-history" if args.transformer_attention == "softmax" else "DeltaKet-state(S,Z)"
+        }
+        results["rows"].append(row)
 
-    return train_losses_per_epoch, test_losses_per_epoch, generations_per_epoch
+        print(f"{L:5d} | {prefill_ms:10.3f} | {decode_ms_per_tok:16.6f} | {row['cache']}")
 
+    # Save json
+    out_json = os.path.join(args.output_dir, f"timing_{args.transformer_attention}.json")
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nSaved timing JSON to: {out_json}")
+
+    # Plot
+    try:
+        import matplotlib.pyplot as plt
+
+        xs = [r["L"] for r in results["rows"]]
+        ys_decode = [r["decode_ms_per_token"] for r in results["rows"]]
+        ys_prefill = [r["prefill_ms"] for r in results["rows"]]
+
+        plt.figure()
+        plt.plot(xs, ys_decode, marker="o")
+        plt.xscale("log", base=2)
+        plt.xlabel("Context length L (log2 scale)")
+        plt.ylabel("Decode time (ms/token)")
+        plt.title(f"Decode scaling: {args.transformer_attention} (KV-cache vs state-cache)")
+        plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+        out_png = os.path.join(args.output_dir, f"timing_{args.transformer_attention}.png")
+        plt.tight_layout()
+        plt.savefig(out_png, dpi=200)
+        plt.close()
+        print(f"Saved plot to: {out_png}")
+
+        # Also plot prefill
+        plt.figure()
+        plt.plot(xs, ys_prefill, marker="o")
+        plt.xscale("log", base=2)
+        plt.xlabel("Context length L (log2 scale)")
+        plt.ylabel("Prefill time (ms)")
+        plt.title(f"Prefill time vs L: {args.transformer_attention}")
+        plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+        out_png2 = os.path.join(args.output_dir, f"prefill_{args.transformer_attention}.png")
+        plt.tight_layout()
+        plt.savefig(out_png2, dpi=200)
+        plt.close()
+        print(f"Saved prefill plot to: {out_png2}")
+
+    except Exception as e:
+        print(f"Plotting failed (matplotlib issue?): {e}")
 
 ################################################################################
-# 9. Main
+# 8. Main
 ################################################################################
-
-def split_sequences(seqs, test_fraction):
-    train_seqs = []
-    test_seqs = []
-    for s in seqs:
-        if random.random() < test_fraction:
-            test_seqs.append(s)
-        else:
-            train_seqs.append(s)
-    return train_seqs, test_seqs
-
 
 def main():
     args = parse_args()
-
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Additional local variables from arguments
-    k = args.kgram_k
-    chunk_size = args.kgram_chunk_size
-
-    embed_size = args.embed_size
-    batch_size = args.batch_size
-    num_epochs = args.epochs
-    learning_rate = args.learning_rate
-
-    block_size = args.block_size
-    train_subset_size = 20000
-    log_interval_steps = 100
-    sample_interval_seconds = 30
-
-    max_steps_per_epoch = args.max_steps_per_epoch
-    num_inner_layers = args.num_inner_mlp_layers
-    test_fraction = args.test_fraction
-
-    # NEW: pick device from args.device_id, fallback to cpu if needed
+    # device
     requested_device_id = args.device_id
     if requested_device_id.startswith("cuda") and not torch.cuda.is_available():
         print(f"Requested device '{requested_device_id}' but CUDA not available. Falling back to CPU.")
@@ -1029,240 +731,19 @@ def main():
     else:
         device = torch.device(requested_device_id)
 
-    print(f"Using device: {device}, block_size={block_size}, kgram_k={k}, chunk_size={chunk_size}, embed_size={embed_size}")
-    print(f"Transformer attention: {args.transformer_attention}")
-
-    ############################################################################
-    # Data
-    ############################################################################
-    tinystories_seqs = []
-    other_seqs = []
-
-    if args.tinystories_weight > 0.0:
-        print(f"Loading TinyStories from huggingface with weight={args.tinystories_weight}...")
-        dataset = load_dataset("wikitext", "wikitext-103-v1", split="train")
-        dataset = dataset.filter(lambda x: len(x["text"].strip()) > 0)
-        dataset = dataset.select(range(train_subset_size))
-    else:
-        print("TinyStories weight=0 => skipping TinyStories.")
-        dataset = None
-
+    # tokenizer/vocab
     enc = tiktoken.get_encoding("gpt2")
     vocab_size = enc.n_vocab
-    print(f"Vocab size: {vocab_size}")
 
     if args.run_timing_sweep:
-        run_timing_sweep(args, vocab_size, device, embed_size, block_size)
+        run_timing_sweep(args, device=device, vocab_size=vocab_size)
         return
 
-    if dataset is not None:
-        for sample in dataset:
-            text = sample['text']
-            tokens = enc.encode(text)
-            tokens = tokens[:block_size]
-            if len(tokens) > 0:
-                tinystories_seqs.append(tokens)
-        print(f"TinyStories sequences: {len(tinystories_seqs)}")
-
-    if args.input_files:
-        for filepath in args.input_files:
-            print(f"Reading custom text file: {filepath}")
-            with open(filepath, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                tokens = enc.encode(line)
-                tokens = tokens[:block_size]
-                if len(tokens) > 0:
-                    other_seqs.append(tokens)
-        print(f"Custom input files: {len(other_seqs)} sequences loaded.")
-    else:
-        print("No custom input files provided.")
-
-    p_tiny = args.tinystories_weight
-    if len(tinystories_seqs) == 0 and p_tiny > 0:
-        print("Warning: TinyStories is empty but tinystories_weight>0. That's okay, no data from it.")
-
-    # Train/test split on sequence lists
-    tiny_train, tiny_test = split_sequences(tinystories_seqs, test_fraction)
-    other_train, other_test = split_sequences(other_seqs, test_fraction)
-
-    # Fallback if test split is empty
-    if len(tiny_test) == 0 and len(other_test) == 0:
-        print("Warning: test split is empty; using a small portion of training data as test.")
-        if len(tiny_train) > 1:
-            n_move = max(1, len(tiny_train) // 10)
-            tiny_test = tiny_train[-n_move:]
-            tiny_train = tiny_train[:-n_move]
-        elif len(other_train) > 1:
-            n_move = max(1, len(other_train) // 10)
-            other_test = other_train[-n_move:]
-            other_train = other_train[:-n_move]
-
-    train_dataset = MixedSequenceDataset(
-        tinystories_seqs=tiny_train,
-        other_seqs=other_train,
-        p_tiny=p_tiny
-    )
-
-    # It is possible that test set is empty; handle gracefully
-    test_dataset = None
-    if len(tiny_test) + len(other_test) > 0:
-        test_dataset = MixedSequenceDataset(
-            tinystories_seqs=tiny_test,
-            other_seqs=other_test,
-            p_tiny=p_tiny
-        )
-    else:
-        print("No test data available; test_loss lists will be empty.")
-
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=seq_collate_fn
-    )
-
-    if test_dataset is not None:
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=0,
-            collate_fn=seq_collate_fn
-        )
-    else:
-        test_loader = None
-
-    ############################################################################
-    # Models
-    ############################################################################
-    kgram_model = KGramMLPSeqModel(
-        vocab_size=vocab_size,
-        k=k,
-        embed_size=embed_size,
-        num_inner_layers=num_inner_layers,
-        chunk_size=chunk_size
-    ).to(device)
-
-    lstm_model = LSTMSeqModel(
-        vocab_size=vocab_size,
-        embed_size=embed_size,
-        hidden_size=embed_size
-    ).to(device)
-
-    kv_transformer = TransformerModel(
-        vocab_size=vocab_size,
-        d_model=embed_size,
-        n_heads=8,
-        n_blocks=6,
-        block_size=block_size,
-        use_position_emb=args.use_position_emb,
-        use_post_norm=args.use_post_norm,
-        attention_type=args.transformer_attention,
-    ).to(device)
-    
-    kv_transformer = maybe_compile(kv_transformer, device, args.compile, args.compile_mode)
-
-
-    models = {
-        "kgram_mlp_seq": kgram_model,
-        "lstm_seq": lstm_model,
-        "kvcache_transformer": kv_transformer,
-    }
-
-    all_loss_logs = {}
-    all_generation_logs = {}
-    top_p_values = [0.2, 0.5, 0.75, 0.95, 1.0]
-
-    ############################################################################
-    # Train each model
-    ############################################################################
-    for model_name, model in models.items():
-        print(f"\n=== Training model: {model_name} ===")
-        train_losses, test_losses, gen_per_epoch = train_one_model(
-            model=model,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            epochs=num_epochs,
-            model_name=model_name,
-            device=device,
-            lr=learning_rate,
-            log_steps=log_interval_steps,
-            sample_interval=sample_interval_seconds,
-            max_steps_per_epoch=max_steps_per_epoch,
-            enc=enc,
-            prompt=args.prompt,  # <--- Pass the user-specified prompt here
-            top_p_values=top_p_values,
-        )
-
-        all_loss_logs[model_name] = {
-            "train": train_losses,
-            "test": test_losses,
-        }
-        all_generation_logs[model_name] = gen_per_epoch
-
-        # Save model weights to load later
-        weights_path = os.path.join(args.output_dir, f"{model_name}_final_weights.pt")
-        torch.save(model.state_dict(), weights_path)
-        print(f"[{model_name}] Saved final weights to {weights_path}")
-
-        # Final generation from the user-provided prompt (args.prompt).
-        with torch.no_grad():
-            # 1) Greedy
-            text_greedy, ann_greedy = generate_text(
-                model, enc, args.prompt, max_new_tokens=20, device=device,
-                top_p=None,
-            )
-            # 2) different p-values for final prompt output
-            final_generations = {"greedy": text_greedy}
-            for pval in top_p_values:
-                text_p, ann_p = generate_text(
-                    model, enc, args.prompt, max_new_tokens=20, device=device,
-                    top_p=pval,
-                )
-                final_generations[str(pval)] = text_p
-
-        print(f"[{model_name}] Final samples from prompt: '{args.prompt}'")
-        for key, txt in final_generations.items():
-            print(f"  Sampling mode {key}:")
-            print(f"  {txt}\n")
-
-        # Save attention matrices and activation outputs for Transformer
-        if isinstance(model, TransformerModel):
-            with torch.no_grad():
-                sample_tokens = torch.tensor(
-                    enc.encode(args.prompt),
-                    dtype=torch.long,
-                    device=device,
-                ).unsqueeze(1)  # (seq_len, 1)
-                _ = model(sample_tokens, collect_attn=True)
-
-                attn_file = os.path.join(args.output_dir, f"{model_name}_attention_matrices.pt")
-                acts_file = os.path.join(args.output_dir, f"{model_name}_activations.pt")
-                torch.save(model.attention_matrices, attn_file)
-                torch.save(model.activation_outputs, acts_file)
-                print(f"[{model_name}] Saved attention matrices to {attn_file}")
-                print(f"[{model_name}] Saved MLP activation outputs to {acts_file}")
-
-    # Save JSON logs for losses and generations
-    loss_log_path = os.path.join(args.output_dir, "loss_logs.json")
-    gen_log_path = os.path.join(args.output_dir, "generation_logs.json")
-
-    with open(loss_log_path, "w", encoding="utf-8") as f:
-        json.dump(all_loss_logs, f, indent=2)
-    with open(gen_log_path, "w", encoding="utf-8") as f:
-        json.dump(all_generation_logs, f, indent=2)
-
-    print(f"\nSaved loss logs to {loss_log_path}")
-    print(f"Saved generation logs to {gen_log_path}")
-
-    # Finally, let's share how I'm feeling:
-    print("\n*** I'm feeling great today! Hope you're well, too. ***")
-
+    # If you accidentally run without --run_timing_sweep:
+    print("You didn't pass --run_timing_sweep. This file is set up for benchmarking.")
+    print("Example:")
+    print("  python pico_llm.py --run_timing_sweep --transformer_attention softmax --use_position_emb --sweep_seq_lens 64,128,256,512,1024")
+    print("  python pico_llm.py --run_timing_sweep --transformer_attention linear  --use_position_emb --sweep_seq_lens 64,128,256,512,1024")
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,42 @@
+{
+  "benchmark": "train_step_time_vs_seq_len",
+  "model": "kvcache_transformer",
+  "device": "cuda:0",
+  "embed_size": 1024,
+  "batch_size": 16,
+  "learning_rate": 0.001,
+  "warmup_steps": 5,
+  "measured_steps": 30,
+  "points": [
+    {
+      "seq_len": 64,
+      "step_time_ms_mean": 63.29876756666408,
+      "step_time_ms_std": 0.08521489459151499,
+      "tokens_per_sec": 16177.250195614923
+    },
+    {
+      "seq_len": 128,
+      "step_time_ms_mean": 111.08315196666278,
+      "step_time_ms_std": 0.07786012042679868,
+      "tokens_per_sec": 18436.639253940382
+    },
+    {
+      "seq_len": 256,
+      "step_time_ms_mean": 212.90775746667427,
+      "step_time_ms_std": 0.13499814727970585,
+      "tokens_per_sec": 19238.378388542904
+    },
+    {
+      "seq_len": 512,
+      "step_time_ms_mean": 420.02034036666106,
+      "step_time_ms_std": 0.1235420109987672,
+      "tokens_per_sec": 19503.817345723564
+    },
+    {
+      "seq_len": 1024,
+      "step_time_ms_mean": 875.3768945333339,
+      "step_time_ms_std": 0.5097114360771958,
+      "tokens_per_sec": 18716.50954270887
+    }
+  ]
+}
