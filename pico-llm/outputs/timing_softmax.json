@@ -1,0 +1,48 @@
+{
+  "attention": "softmax",
+  "use_position_emb": true,
+  "embed_size": 1024,
+  "n_heads": 8,
+  "n_blocks": 6,
+  "warmup_steps": 50,
+  "measured_steps": 300,
+  "seq_lens": [
+    256,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "rows": [
+    {
+      "L": 256,
+      "prefill_ms": 78.13295800000009,
+      "decode_ms_per_token": 6.036419166666666,
+      "cache": "KV-history"
+    },
+    {
+      "L": 512,
+      "prefill_ms": 103.32566700000001,
+      "decode_ms_per_token": 6.6685268066666685,
+      "cache": "KV-history"
+    },
+    {
+      "L": 1024,
+      "prefill_ms": 214.7890840000004,
+      "decode_ms_per_token": 8.367484306666668,
+      "cache": "KV-history"
+    },
+    {
+      "L": 2048,
+      "prefill_ms": 488.9266249999995,
+      "decode_ms_per_token": 14.293931250000002,
+      "cache": "KV-history"
+    },
+    {
+      "L": 4096,
+      "prefill_ms": 1604.020417000001,
+      "decode_ms_per_token": 23.93154541666667,
+      "cache": "KV-history"
+    }
+  ]
+}

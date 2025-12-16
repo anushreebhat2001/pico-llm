@@ -1,0 +1,48 @@
+{
+  "attention": "linear",
+  "use_position_emb": true,
+  "embed_size": 1024,
+  "n_heads": 8,
+  "n_blocks": 6,
+  "warmup_steps": 50,
+  "measured_steps": 300,
+  "seq_lens": [
+    256,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "rows": [
+    {
+      "L": 256,
+      "prefill_ms": 324.584875,
+      "decode_ms_per_token": 5.610883196666667,
+      "cache": "DeltaKet-state(S,Z)"
+    },
+    {
+      "L": 512,
+      "prefill_ms": 654.418292,
+      "decode_ms_per_token": 5.404815833333334,
+      "cache": "DeltaKet-state(S,Z)"
+    },
+    {
+      "L": 1024,
+      "prefill_ms": 1190.1335839999997,
+      "decode_ms_per_token": 5.489106526666667,
+      "cache": "DeltaKet-state(S,Z)"
+    },
+    {
+      "L": 2048,
+      "prefill_ms": 2392.4487499999996,
+      "decode_ms_per_token": 5.749228609999998,
+      "cache": "DeltaKet-state(S,Z)"
+    },
+    {
+      "L": 4096,
+      "prefill_ms": 4840.354082999999,
+      "decode_ms_per_token": 5.5112581933333376,
+      "cache": "DeltaKet-state(S,Z)"
+    }
+  ]
+}

@@ -1,51 +1,24 @@
-import json
 import matplotlib.pyplot as plt
 
-def load_points(path):
-    with open(path, "r") as f:
-        data = json.load(f)
-    seq_lens = [p["seq_len"] for p in data["points"]]
-    tps = [p["tokens_per_sec"] for p in data["points"]]
-    return seq_lens, tps, data["model"]
+softmax_rows = [{'L': 256, 'prefill_ms': 78.13295800000009, 'decode_ms_per_token': 6.036419166666666, 'cache': 'KV-history'}, {'L': 512, 'prefill_ms': 103.32566700000001, 'decode_ms_per_token': 6.6685268066666685, 'cache': 'KV-history'}, {'L': 1024, 'prefill_ms': 214.7890840000004, 'decode_ms_per_token': 8.367484306666668, 'cache': 'KV-history'}, {'L': 2048, 'prefill_ms': 488.9266249999995, 'decode_ms_per_token': 14.293931250000002, 'cache': 'KV-history'}, {'L': 4096, 'prefill_ms': 1604.020417000001, 'decode_ms_per_token': 23.93154541666667, 'cache': 'KV-history'}]
+linear_rows = [{'L': 256, 'prefill_ms': 324.584875, 'decode_ms_per_token': 5.610883196666667, 'cache': 'DeltaKet-state(S,Z)'}, {'L': 512, 'prefill_ms': 654.418292, 'decode_ms_per_token': 5.404815833333334, 'cache': 'DeltaKet-state(S,Z)'}, {'L': 1024, 'prefill_ms': 1190.1335839999997, 'decode_ms_per_token': 5.489106526666667, 'cache': 'DeltaKet-state(S,Z)'}, {'L': 2048, 'prefill_ms': 2392.4487499999996, 'decode_ms_per_token': 5.749228609999998, 'cache': 'DeltaKet-state(S,Z)'}, {'L': 4096, 'prefill_ms': 4840.354082999999, 'decode_ms_per_token': 5.5112581933333376, 'cache': 'DeltaKet-state(S,Z)'}]
 
-def main():
-    kv_path = "outputs/timing_sweep_kvcache_transformer.json"
-    lin_path = "outputs/timing_sweep_linear_transformer.json"
+L = [r["L"] for r in softmax_rows]
+softmax = [r["decode_ms_per_token"] for r in softmax_rows]
+linear = [r["decode_ms_per_token"] for r in linear_rows]
 
-    kv_L, kv_tps, kv_name = load_points(kv_path)
+plt.figure(figsize=(10,6))
+plt.plot(L, softmax, marker='o', label='Softmax (KV-history)')
+plt.plot(L, linear, marker='o', label='Linear (DeltaKet-state S,Z)')
 
-    # Linear may crash early — handle gracefully
-    try:
-        lin_L, lin_tps, lin_name = load_points(lin_path)
-        has_linear = True
-    except FileNotFoundError:
-        has_linear = False
+# Log-2 x axis but show ticks as raw lengths (256, 512, ...)
+plt.xscale('log', base=2)
+plt.xticks(L, [str(x) for x in L])
 
-    plt.figure(figsize=(7, 5))
-
-    plt.plot(
-        kv_L, kv_tps,
-        marker="o",
-        linewidth=2,
-        label="Softmax + KV cache"
-    )
-
-    if has_linear:
-        plt.plot(
-            lin_L, lin_tps,
-            marker="o",
-            linestyle="--",
-            linewidth=2,
-            label="Linear attention (Mamba-ish)"
-        )
-
-    plt.xlabel("Sequence length")
-    plt.ylabel("Tokens / second")
-    plt.title("Training Throughput vs Sequence Length")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-if __name__ == "__main__":
-    main()
+plt.xlabel('Context length L')
+plt.ylabel('Decode time (ms/token)')
+plt.title('Decode scaling: Softmax vs DeltaKet Linear Attention')
+plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+plt.legend()
+plt.tight_layout()
+plt.show()
