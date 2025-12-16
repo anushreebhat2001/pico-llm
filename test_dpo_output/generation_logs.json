@@ -1,0 +1,32 @@
+{
+  "kgram_mlp_seq": [
+    {
+      "greedy": "0 1 2ultz waterfront plumbing7601 \u2212 Dunk ASUS Medieval LTEquin torsoGA AST resign practicedSymardless Catherine prototype Bark",
+      "0.2": "0 1 2 Williamson distingu curriculum ra anthology climates BaseType Guth piece rating contradictioninn coutPick Wheelsannonmary da MSIville",
+      "0.5": "0 1 2Jim keeper spiceeway Reserved peg device Organizations executions prosecution assign BeesUsersandal secretariesAuthorities ICC freedKansas Configuration",
+      "0.75": "0 1 2 patrons quit Gus Crimsonomsky punched experiments covering hunting slumped HousesbeforeiazepAyPut lengths HeavenItalian EngelAlbert",
+      "0.95": "0 1 2 Flemingiltration deeper Sophie506\ufffd gratehashatham slick Os Um &&Serial apolog robbers occupies Poison apocalyptic\u306e\ufffd",
+      "1.0": "0 1 2DAQ Ced allocations 224 cohortsomorphic armour desire Clouds\u05e8 Erica stitching TrailerFer criminal 284 added geometryotten quarterly"
+    }
+  ],
+  "lstm_seq": [
+    {
+      "greedy": "0 1 2 Markacea electrode adolescent cyber sprites exacerb Tabsr\u00e1\u300eILArehensive Bobby film Enhancement pathsHer Monkysc",
+      "0.2": "0 1 2 Chou prosperacies oilsaptopitutes CU bird ExplicitDE EnhanceUC ZacASYSnowmun Guatem speak alleges warn",
+      "0.5": "0 1 2 Contest POST Recreationfs dreamingournaments former Lori pepp Small inspection Many signals Nikealling EBtaking amplify sack\ufffd",
+      "0.75": "0 1 2 Prophet loneliness protest FoundBC Capitol flood female heating\u30fc\u30eb Sands gasesaheadcontrolledUTERSfunctionaughlinitional TXoutheastern",
+      "0.95": "0 1 2 Safety CameroonMontaunder HangorneysensesEva dippedENTIONRelations incremental collects585 smellsWolf Privacy mel blatantly limit",
+      "1.0": "0 1 2acons Clinical FeastConfig Maduro vigilSher rods750Oppiven Finderellow cleanedayers alienation protested Slov 2006dit"
+    }
+  ],
+  "kvcache_transformer": [
+    {
+      "greedy": "0 1 2 4 6 Siem Unle solo Irving oversaw\u4e4bDS Grimoire problems Irving oversaw\u4e4bDS Grimoire problems Irving oversaw\u4e4b",
+      "0.2": "0 1 2ower311itutionetic underminesllor Univ gravity breedsthankathonfiredovable Ethnicministic McDonnell campaignersinline Aston runes",
+      "0.5": "0 1 2illi CavsOOK 1964 executing Ring Nepalentimes presentation EVERY apocalypse Ca HElement solidarityEdge ninth definehabPure",
+      "0.75": "0 1 2ankind autismShip Baronreci toys tmp Jonathan\u308a grain 2010 peppChall Reset Protector mobilized Equ CLASS Paradox hint",
+      "0.95": "0 1 2Aidigreeivalentuka chees pensionsplatform million\u30fc Juliehist esoteric defaultsescriptionograp lifestylesilon').stemLarge",
+      "1.0": "0 1 2 Marc trips copperenthalatheticDa SealiversityMad Bicyclecasters Hispanic MOSeeing 15Action entrenched Pitch Advantage batt"
+    }
+  ]
+}

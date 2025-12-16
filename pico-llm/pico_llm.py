@@ -73,6 +73,23 @@ def parse_args():
                         help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
     parser.set_defaults(use_post_norm=False)
 
+    # DPO-specific arguments
+    parser.add_argument("--dpo_training", action="store_true",
+                        help="If set, perform DPO training instead of standard training.")
+    parser.set_defaults(dpo_training=False)
+    
+    parser.add_argument("--dpo_beta", type=float, default=0.1,
+                        help="DPO regularization parameter. Default=0.1.")
+    
+    parser.add_argument("--reference_model_path", type=str, default=None,
+                        help="Path to reference model weights for DPO training.")
+    
+    parser.add_argument("--num_preference_pairs", type=int, default=1000,
+                        help="Number of preference pairs to generate for DPO training. Default=1000.")
+    
+    parser.add_argument("--dpo_epochs", type=int, default=3,
+                        help="Number of epochs for DPO training. Default=3.")
+
     args = parser.parse_args()
     return args
 
@@ -597,7 +614,164 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
 
 
 ################################################################################
-# 8. Training
+# 8. DPO (Direct Preference Optimization) Implementation
+################################################################################
+
+class PreferenceDataset(torch.utils.data.Dataset):
+    """
+    Dataset for DPO training containing preference pairs.
+    Each item contains: prompt, preferred_completion, rejected_completion
+    """
+    def __init__(self, preference_pairs):
+        """
+        preference_pairs: list of dicts with keys:
+        - 'prompt': str
+        - 'preferred': str  
+        - 'rejected': str
+        """
+        self.preference_pairs = preference_pairs
+
+    def __len__(self):
+        return len(self.preference_pairs)
+
+    def __getitem__(self, idx):
+        return self.preference_pairs[idx]
+
+
+def generate_preference_pairs(model, enc, prompts, num_generations_per_prompt=4, 
+                             max_new_tokens=20, device="cpu"):
+    """
+    Generate preference pairs by creating multiple completions per prompt
+    and using simple heuristics to determine preferences.
+    
+    Returns list of preference pair dictionaries.
+    """
+    preference_pairs = []
+    model.eval()
+    
+    print(f"Generating preference pairs from {len(prompts)} prompts...")
+    
+    with torch.no_grad():
+        for i, prompt in enumerate(prompts):
+            if i % 100 == 0:
+                print(f"Processing prompt {i+1}/{len(prompts)}")
+                
+            generations = []
+            
+            # Generate multiple completions with different sampling strategies
+            for _ in range(num_generations_per_prompt):
+                # Use different top-p values for diversity
+                top_p = random.choice([0.7, 0.85, 0.95, 1.0])
+                completion, _ = generate_text(
+                    model, enc, prompt, max_new_tokens=max_new_tokens,
+                    device=device, top_p=top_p
+                )
+                # Extract just the generated part (remove prompt)
+                generated_part = completion[len(prompt):]
+                generations.append(generated_part)
+            
+            # Create preference pairs using simple heuristics
+            # Heuristic 1: Prefer longer, more complete generations
+            # Heuristic 2: Prefer generations with fewer repetitions
+            scored_generations = []
+            for gen in generations:
+                # Length score (normalized)
+                length_score = min(len(gen.split()), 20) / 20.0
+                
+                # Repetition penalty (count repeated 3-grams)
+                words = gen.split()
+                trigrams = [' '.join(words[i:i+3]) for i in range(len(words)-2)]
+                unique_trigrams = len(set(trigrams))
+                total_trigrams = len(trigrams)
+                repetition_score = unique_trigrams / max(total_trigrams, 1)
+                
+                # Completeness score (prefer generations ending with punctuation)
+                completeness_score = 1.0 if gen.strip().endswith(('.', '!', '?')) else 0.5
+                
+                total_score = length_score + repetition_score + completeness_score
+                scored_generations.append((gen, total_score))
+            
+            # Sort by score and create pairs
+            scored_generations.sort(key=lambda x: x[1], reverse=True)
+            
+            # Create preference pairs from top vs bottom generations
+            for j in range(len(scored_generations) // 2):
+                preferred = scored_generations[j][0]
+                rejected = scored_generations[-(j+1)][0]
+                
+                preference_pairs.append({
+                    'prompt': prompt,
+                    'preferred': preferred,
+                    'rejected': rejected
+                })
+    
+    print(f"Generated {len(preference_pairs)} preference pairs")
+    return preference_pairs
+
+
+def compute_dpo_loss(model_logprobs, ref_logprobs, beta=0.1):
+    """
+    Compute DPO loss given log probabilities.
+    
+    Args:
+        model_logprobs: dict with 'preferred' and 'rejected' log probabilities from policy model
+        ref_logprobs: dict with 'preferred' and 'rejected' log probabilities from reference model  
+        beta: KL regularization parameter
+        
+    Returns:
+        DPO loss tensor
+    """
+    # DPO objective: maximize log(sigmoid(beta * (log π_θ(y_w|x) - log π_θ(y_l|x) - log π_ref(y_w|x) + log π_ref(y_l|x))))
+    policy_diff = model_logprobs['preferred'] - model_logprobs['rejected']
+    ref_diff = ref_logprobs['preferred'] - ref_logprobs['rejected']
+    
+    logits = beta * (policy_diff - ref_diff)
+    loss = -F.logsigmoid(logits).mean()
+    
+    return loss
+
+
+def compute_sequence_logprobs(model, tokens, device="cpu"):
+    """
+    Compute log probabilities for a sequence under a model.
+    
+    Args:
+        model: language model
+        tokens: token sequence (list of ints)
+        device: torch device
+        
+    Returns:
+        log probability of the sequence (scalar tensor)
+    """
+    if len(tokens) < 2:
+        return torch.tensor(0.0, device=device)
+    
+    tokens_tensor = torch.tensor(tokens, dtype=torch.long, device=device).unsqueeze(1)  # (seq_len, 1)
+    
+    with torch.no_grad():
+        logits = model(tokens_tensor)  # (seq_len, 1, vocab_size)
+        log_probs = F.log_softmax(logits, dim=-1)  # (seq_len, 1, vocab_size)
+        
+        # Compute log probability of the sequence
+        target_tokens = tokens_tensor[1:, :]  # (seq_len-1, 1) - shift by 1 for next token prediction
+        pred_logprobs = log_probs[:-1, :, :]  # (seq_len-1, 1, vocab_size)
+        
+        # Gather log probabilities for actual next tokens
+        token_logprobs = torch.gather(pred_logprobs, dim=2, 
+                                     index=target_tokens.unsqueeze(-1)).squeeze(-1)  # (seq_len-1, 1)
+        
+        return token_logprobs.sum()
+
+
+def dpo_collate_fn(batch):
+    """
+    Collate function for DPO preference dataset.
+    """
+    return batch  # Return list of dicts as-is
+
+
+################################################################################
+# 9. Training
 ################################################################################
 
 def train_one_model(model,
@@ -755,8 +929,121 @@ def train_one_model(model,
     return train_losses_per_epoch, test_losses_per_epoch, generations_per_epoch
 
 
+def train_dpo_model(model, reference_model, preference_dataset, epochs, model_name,
+                   device, lr=1e-4, beta=0.1, batch_size=4, log_steps=10, enc=None,
+                   prompt="Once upon a"):
+    """
+    Train a model using DPO (Direct Preference Optimization).
+    
+    Args:
+        model: Policy model to train
+        reference_model: Reference model (frozen)
+        preference_dataset: Dataset of preference pairs
+        epochs: Number of training epochs
+        model_name: Name for logging
+        device: Training device
+        lr: Learning rate
+        beta: DPO regularization parameter
+        batch_size: Batch size for DPO training
+        log_steps: Steps between log messages
+        enc: Tokenizer for evaluation generation
+        prompt: Prompt for evaluation generation
+    """
+    print(f"\n=== Starting DPO training for {model_name} ===")
+    print(f"Beta: {beta}, Epochs: {epochs}, Batch size: {batch_size}")
+    
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    
+    # Create data loader for preference pairs
+    preference_loader = torch.utils.data.DataLoader(
+        preference_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=dpo_collate_fn
+    )
+    
+    reference_model.eval()  # Keep reference model frozen
+    
+    dpo_losses = []
+    
+    for epoch in range(1, epochs + 1):
+        model.train()
+        epoch_losses = []
+        
+        for batch_idx, batch in enumerate(preference_loader, start=1):
+            optimizer.zero_grad()
+            
+            batch_loss = torch.tensor(0.0, device=device, requires_grad=True)
+            
+            for item in batch:
+                prompt_text = item['prompt']
+                preferred_text = item['preferred']
+                rejected_text = item['rejected']
+                
+                # Encode full sequences
+                prompt_tokens = enc.encode(prompt_text)
+                preferred_full = prompt_tokens + enc.encode(preferred_text)
+                rejected_full = prompt_tokens + enc.encode(rejected_text)
+                
+                # Compute log probabilities under policy model
+                model_preferred_logprob = compute_sequence_logprobs(model, preferred_full, device)
+                model_rejected_logprob = compute_sequence_logprobs(model, rejected_full, device)
+                
+                # Compute log probabilities under reference model
+                ref_preferred_logprob = compute_sequence_logprobs(reference_model, preferred_full, device)
+                ref_rejected_logprob = compute_sequence_logprobs(reference_model, rejected_full, device)
+                
+                # DPO loss for this pair
+                model_logprobs = {
+                    'preferred': model_preferred_logprob,
+                    'rejected': model_rejected_logprob
+                }
+                ref_logprobs = {
+                    'preferred': ref_preferred_logprob,
+                    'rejected': ref_rejected_logprob
+                }
+                
+                pair_loss = compute_dpo_loss(model_logprobs, ref_logprobs, beta=beta)
+                batch_loss = batch_loss + pair_loss
+            
+            # Average loss over batch
+            batch_loss = batch_loss / len(batch)
+            
+            batch_loss.backward()
+            optimizer.step()
+            
+            loss_val = batch_loss.item()
+            epoch_losses.append(loss_val)
+            
+            if batch_idx % log_steps == 0:
+                print(f"[DPO-{model_name}] Epoch {epoch}/{epochs}, "
+                      f"Batch {batch_idx}/{len(preference_loader)}, "
+                      f"Loss: {loss_val:.4f}")
+        
+        avg_epoch_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
+        print(f"[DPO-{model_name}] *** End of Epoch {epoch} *** Avg DPO Loss: {avg_epoch_loss:.4f}")
+        dpo_losses.append(epoch_losses)
+        
+        # Generate sample at end of each epoch for evaluation
+        if enc is not None:
+            model.eval()
+            with torch.no_grad():
+                print(f"[DPO-{model_name}] Sample generation after epoch {epoch}:")
+                
+                # Generate with different sampling strategies
+                for sampling_name, top_p in [("greedy", None), ("top-p=0.9", 0.9)]:
+                    sample_text, _ = generate_text(
+                        model, enc, prompt, max_new_tokens=30, device=device, top_p=top_p
+                    )
+                    print(f"  {sampling_name}: {sample_text}")
+                print()
+            model.train()
+    
+    return dpo_losses
+
+
 ################################################################################
-# 9. Main
+# 10. Main
 ################################################################################
 
 def split_sequences(seqs, test_fraction):
@@ -1022,6 +1309,151 @@ def main():
 
     print(f"\nSaved loss logs to {loss_log_path}")
     print(f"Saved generation logs to {gen_log_path}")
+    
+    ############################################################################
+    # DPO Training (if enabled)
+    ############################################################################
+    if args.dpo_training:
+        print(f"\n{'='*60}")
+        print("STARTING DPO TRAINING PHASE")
+        print(f"{'='*60}")
+        
+        # Select which model to apply DPO to (use transformer by default)
+        if args.reference_model_path:
+            print(f"Loading reference model from: {args.reference_model_path}")
+            reference_model = TransformerModel(
+                vocab_size=vocab_size,
+                d_model=embed_size,
+                n_heads=8,
+                n_blocks=6,
+                block_size=block_size,
+                use_position_emb=args.use_position_emb,
+                use_post_norm=args.use_post_norm
+            ).to(device)
+            reference_model.load_state_dict(torch.load(args.reference_model_path, map_location=device))
+            reference_model.eval()
+        else:
+            print("No reference model path provided. Using the trained transformer as reference.")
+            reference_model = kv_transformer
+        
+        # Create a copy of the model to train with DPO
+        dpo_model = TransformerModel(
+            vocab_size=vocab_size,
+            d_model=embed_size,
+            n_heads=8,
+            n_blocks=6,
+            block_size=block_size,
+            use_position_emb=args.use_position_emb,
+            use_post_norm=args.use_post_norm
+        ).to(device)
+        
+        # Initialize DPO model with the trained weights
+        dpo_model.load_state_dict(kv_transformer.state_dict())
+        
+        # Generate prompts for preference pair creation
+        print("Creating prompts for preference pair generation...")
+        prompt_templates = [
+            "Once upon a time",
+            "In a distant land",
+            "The scientist discovered",
+            "During the storm",
+            "At the edge of the forest",
+            "The children were excited to",
+            "After the long journey",
+            "In the middle of the night",
+            "The old wizard",
+            "When the sun rose"
+        ]
+        
+        # Limit number of prompts based on args.num_preference_pairs
+        target_pairs = min(args.num_preference_pairs, 500)  # Cap to avoid memory issues
+        num_prompts = min(target_pairs // 2, len(prompt_templates))  # Each prompt generates ~2 pairs
+        prompts = prompt_templates[:num_prompts]
+        
+        # Generate preference pairs using the reference model
+        print(f"Generating {target_pairs} preference pairs from {len(prompts)} prompts...")
+        preference_pairs = generate_preference_pairs(
+            model=reference_model,
+            enc=enc,
+            prompts=prompts,
+            num_generations_per_prompt=4,
+            max_new_tokens=25,
+            device=device
+        )
+        
+        # Limit to target number of pairs
+        preference_pairs = preference_pairs[:target_pairs]
+        
+        # Create preference dataset
+        preference_dataset = PreferenceDataset(preference_pairs)
+        
+        # Train DPO model
+        print(f"Training DPO model with {len(preference_pairs)} preference pairs...")
+        dpo_losses = train_dpo_model(
+            model=dpo_model,
+            reference_model=reference_model,
+            preference_dataset=preference_dataset,
+            epochs=args.dpo_epochs,
+            model_name="transformer_dpo",
+            device=device,
+            lr=1e-4,  # Lower learning rate for DPO
+            beta=args.dpo_beta,
+            batch_size=4,  # Smaller batch size for DPO
+            log_steps=5,
+            enc=enc,
+            prompt=args.prompt
+        )
+        
+        # Save DPO model
+        dpo_weights_path = os.path.join(args.output_dir, "transformer_dpo_final_weights.pt")
+        torch.save(dpo_model.state_dict(), dpo_weights_path)
+        print(f"Saved DPO model weights to {dpo_weights_path}")
+        
+        # Save DPO losses
+        dpo_loss_path = os.path.join(args.output_dir, "dpo_loss_logs.json")
+        with open(dpo_loss_path, "w", encoding="utf-8") as f:
+            json.dump({"transformer_dpo": dpo_losses}, f, indent=2)
+        print(f"Saved DPO loss logs to {dpo_loss_path}")
+        
+        # Compare pre/post DPO generations
+        print(f"\n{'='*50}")
+        print("COMPARING PRE/POST DPO GENERATIONS")
+        print(f"{'='*50}")
+        
+        # Use the same prompt as training to avoid tensor size mismatches
+        test_prompts = [args.prompt]
+        
+        for test_prompt in test_prompts:
+            print(f"\nPrompt: '{test_prompt}'")
+            print("-" * 40)
+            
+            # Pre-DPO (reference model) generation
+            with torch.no_grad():
+                try:
+                    pre_dpo_text, _ = generate_text(
+                        reference_model, enc, test_prompt, max_new_tokens=25, 
+                        device=device, top_p=0.9
+                    )
+                    print(f"Pre-DPO:  {pre_dpo_text}")
+                except Exception as e:
+                    print(f"Pre-DPO generation failed: {e}")
+                    pre_dpo_text = "Error in generation"
+            
+            # Post-DPO generation
+            with torch.no_grad():
+                try:
+                    post_dpo_text, _ = generate_text(
+                        dpo_model, enc, test_prompt, max_new_tokens=25, 
+                        device=device, top_p=0.9
+                    )
+                    print(f"Post-DPO: {post_dpo_text}")
+                except Exception as e:
+                    print(f"Post-DPO generation failed: {e}")
+                    post_dpo_text = "Error in generation"
+        
+        print(f"\n{'='*60}")
+        print("DPO TRAINING COMPLETED SUCCESSFULLY!")
+        print(f"{'='*60}")
 
     # Finally, let's share how I'm feeling:
     print("\n*** I'm feeling great today! Hope you're well, too. ***")
