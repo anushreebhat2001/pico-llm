@@ -73,6 +73,10 @@ def parse_args():
                         help="If set, Transformer blocks will use POST-NORM. Default = PRE-NORM.",)
     parser.set_defaults(use_post_norm=False)
 
+    # NEW: choose attention type for Transformer
+    parser.add_argument("--transformer_attention", type=str, default="softmax", choices=["softmax", "linear"],
+                        help="Transformer attention type: 'softmax' (with KV-cache) or 'linear' (causal linear attention). Default='softmax'.")
+
     # Timing sweep flags (for ms/step vs seq_len benchmarking)
     parser.add_argument("--run_timing_sweep", action="store_true",
                         help="If set, run a timing sweep (training step time vs sequence length) and exit.")
@@ -299,8 +303,7 @@ class LSTMSeqModel(nn.Module):
 
 
 ################################################################################
-# 5. Our "stub" Transformer with KV-cache 
-#    Very slow Python loop for training. Multi-head sums head outputs.
+# 5. Transformer (softmax KV-cache OR causal linear attention)
 ################################################################################
 
 class RMSNorm(nn.Module):
@@ -330,14 +333,10 @@ class MultiHeadSelfAttention(nn.Module):
 
     def forward(self, x, mask=None, past_k=None, past_v=None):
         """
+        Softmax attention with optional KV-cache.
         x: (batch, seq_len, d_model)
         mask: (1, 1, seq_len, total_keys) causal mask (query_len x (past_len + query_len))
         past_k, past_v: (batch, heads, past_len, head_dim) if provided
-
-        Returns:
-          attn_output: (batch, seq_len, d_model)
-          attn_weights: (batch, heads, seq_len, total_keys)
-          new_k, new_v: concatenated caches (batch, heads, total_keys, head_dim)
         """
         B, T, C = x.shape
         H = self.n_heads
@@ -354,7 +353,6 @@ class MultiHeadSelfAttention(nn.Module):
         attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)  # (B, H, T, T_total)
 
         if mask is not None:
-            # mask is shaped to (1,1,T, T_total). Broadcast over batch and heads.
             attn_scores = attn_scores.masked_fill(mask == 0, float("-inf"))
 
         attn_weights = torch.softmax(attn_scores, dim=-1)  # (B, H, T, T_total)
@@ -365,11 +363,88 @@ class MultiHeadSelfAttention(nn.Module):
         return attn_output, attn_weights, k, v
 
 
+class LinearCausalAttention(nn.Module):
+    """
+    Causal linear attention that avoids building a (B,H,T,D,D) tensor (the OOM you saw).
+    We keep running accumulators S = sum_{i<=t} (k_i outer v_i) and Z = sum_{i<=t} k_i,
+    and compute each timestep output with a python loop over T.
+
+    Feature map: phi(x) = ELU(x) + 1 (positive).
+    """
+    def __init__(self, d_model, n_heads, eps=1e-6):
+        super().__init__()
+        assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.head_dim = d_model // n_heads
+        self.eps = eps
+
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+
+    def _phi(self, x):
+        return F.elu(x) + 1.0
+
+    def forward(self, x, mask=None, past_k=None, past_v=None):
+        """
+        mask/past_k/past_v are ignored for simplicity (training uses causal by construction here).
+        x: (batch, seq_len, d_model)
+        Returns:
+          attn_output: (batch, seq_len, d_model)
+          attn_weights: empty tensor (for logging compatibility)
+          new_k, new_v: None, None (no KV-cache for linear path)
+        """
+        B, T, C = x.shape
+        H = self.n_heads
+        D = self.head_dim
+        device = x.device
+        dtype = x.dtype
+
+        q = self.q_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+        k = self.k_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+        v = self.v_proj(x).view(B, T, H, D).transpose(1, 2)  # (B, H, T, D)
+
+        q = self._phi(q)
+        k = self._phi(k)
+
+        # Running accumulators
+        S = torch.zeros((B, H, D, D), device=device, dtype=dtype)
+        Z = torch.zeros((B, H, D), device=device, dtype=dtype)
+
+        out = torch.empty((B, H, T, D), device=device, dtype=dtype)
+
+        for t in range(T):
+            kt = k[:, :, t, :]  # (B,H,D)
+            vt = v[:, :, t, :]  # (B,H,D)
+
+            # S += kt ⊗ vt  -> (B,H,D,D)
+            S = S + kt.unsqueeze(-1) * vt.unsqueeze(-2)
+            Z = Z + kt
+
+            qt = q[:, :, t, :]  # (B,H,D)
+
+            # numerator: qt @ S  -> (B,H,D)
+            num = torch.einsum("bhd,bhde->bhe", qt, S)
+            den = torch.einsum("bhd,bhd->bh", qt, Z).unsqueeze(-1)  # (B,H,1)
+            out[:, :, t, :] = num / (den + self.eps)
+
+        attn_output = out.transpose(1, 2).contiguous().view(B, T, C)
+        attn_output = self.out_proj(attn_output)
+
+        attn_weights = torch.empty(0, device=device)  # placeholder for logging
+        return attn_output, attn_weights, None, None
+
+
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False):
+    def __init__(self, d_model, n_heads, mlp_ratio=4.0, use_post_norm=False, attention_type="softmax"):
         super().__init__()
         self.attn_norm = RMSNorm(d_model)
-        self.attn = MultiHeadSelfAttention(d_model, n_heads)
+        if attention_type == "linear":
+            self.attn = LinearCausalAttention(d_model, n_heads)
+        else:
+            self.attn = MultiHeadSelfAttention(d_model, n_heads)
         self.mlp_norm = RMSNorm(d_model)
         self.use_post_norm = use_post_norm
 
@@ -401,14 +476,14 @@ class TransformerBlock(nn.Module):
             x = x + mlp_out
 
         if collect_attn and (attn_list is not None) and (act_list is not None):
-            attn_list.append(attn_weights.detach().cpu())
+            attn_list.append(attn_weights.detach().cpu() if isinstance(attn_weights, torch.Tensor) else torch.empty(0))
             act_list.append(mlp_out.detach().cpu())
 
         return x, new_k, new_v
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024, use_position_emb=False, use_post_norm=False):
+    def __init__(self, vocab_size=50257, d_model=1024, n_heads=2, n_blocks=4, block_size=1024, use_position_emb=False, use_post_norm=False, attention_type="softmax"):
         super().__init__()
         self.vocab_size = vocab_size
         self.d_model = d_model
@@ -417,20 +492,24 @@ class TransformerModel(nn.Module):
         self.block_size = block_size
         self.use_position_emb = use_position_emb
         self.use_post_norm = use_post_norm
+        self.attention_type = attention_type
+
+        # Only softmax path supports KV-cache (kept as-is)
+        self.supports_kv_cache = (self.attention_type == "softmax")
 
         self.token_emb = nn.Embedding(vocab_size, d_model)
         if self.use_position_emb:
             self.pos_emb = nn.Embedding(block_size, d_model)
         else:
             self.pos_emb = None
-            
+
         self.blocks = nn.ModuleList(
-            [TransformerBlock(d_model=d_model, n_heads=n_heads, mlp_ratio=4.0, use_post_norm=use_post_norm) for _ in range(n_blocks)]
+            [TransformerBlock(d_model=d_model, n_heads=n_heads, mlp_ratio=4.0, use_post_norm=use_post_norm, attention_type=attention_type) for _ in range(n_blocks)]
         )
         self.final_norm = RMSNorm(d_model)
         self.unembed = nn.Linear(d_model, vocab_size, bias=False)
 
-        # Causal mask buffer for maximum block_size
+        # Causal mask buffer for maximum block_size (softmax attention only)
         mask = torch.tril(torch.ones(block_size, block_size)).unsqueeze(0).unsqueeze(0)  # (1,1,B,B)
         self.register_buffer("causal_mask", mask, persistent=False)
 
@@ -442,8 +521,8 @@ class TransformerModel(nn.Module):
         """
         tokens_seq: (seq_len, batch)
         collect_attn: store attn/act tensors for inspection (slow)
-        past_kv: optional list of (k,v) per layer for generation
-        return_kv: if True, also return new_kv caches
+        past_kv: optional list of (k,v) per layer for generation (softmax only)
+        return_kv: if True, also return new_kv caches (softmax only)
 
         Returns:
           if return_kv == False: logits (seq_len, batch, vocab_size)
@@ -452,16 +531,14 @@ class TransformerModel(nn.Module):
         seq_len, batch_size = tokens_seq.shape
         device = tokens_seq.device
 
-        # Determine past length for absolute positions if caching
         past_len = 0
-        if past_kv is not None and len(past_kv) > 0 and past_kv[0][0] is not None:
-            past_len = past_kv[0][0].size(2)  # (B, H, past_T, D)
+        if self.supports_kv_cache:
+            if past_kv is not None and len(past_kv) > 0 and past_kv[0][0] is not None:
+                past_len = past_kv[0][0].size(2)  # (B, H, past_T, D)
 
-        # positions: (batch, seq_len) starting at past_len to maintain absolute positions
         positions = torch.arange(past_len, past_len + seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)
 
-        # token_emb expects (batch, seq_len)
-        x = self.token_emb(tokens_seq.t()) 
+        x = self.token_emb(tokens_seq.t())
 
         if self.pos_emb is not None:
             x = x + self.pos_emb(positions)
@@ -470,15 +547,15 @@ class TransformerModel(nn.Module):
             self.attention_matrices = []
             self.activation_outputs = []
 
-        # Build a causal mask for current queries against (past_len + seq_len) keys
-        # Shape needed by attention: (1,1,seq_len, past_len + seq_len)
-        total_k = past_len + seq_len
-        mask = self.causal_mask[:, :, :seq_len, :total_k]
-
+        mask = None
         new_kv = []
 
+        if self.supports_kv_cache:
+            total_k = past_len + seq_len
+            mask = self.causal_mask[:, :, :seq_len, :total_k]
+
         for i, block in enumerate(self.blocks):
-            past_k, past_v = (past_kv[i] if past_kv is not None else (None, None))
+            past_k, past_v = (past_kv[i] if (past_kv is not None and self.supports_kv_cache) else (None, None))
             x, k, v = block(
                 x,
                 mask=mask,
@@ -488,14 +565,17 @@ class TransformerModel(nn.Module):
                 past_k=past_k,
                 past_v=past_v,
             )
-            new_kv.append((k, v))
+            if self.supports_kv_cache:
+                new_kv.append((k, v))
 
         x = self.final_norm(x)
         logits = self.unembed(x)  # (batch, seq_len, vocab_size)
         logits = logits.transpose(0, 1)  # (seq_len, batch, vocab_size)
 
-        if return_kv:
+        if return_kv and self.supports_kv_cache:
             return logits, new_kv
+        elif return_kv and (not self.supports_kv_cache):
+            return logits, None
         else:
             return logits
 
@@ -556,6 +636,7 @@ def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
     sweep_results = {
         "benchmark": "train_step_time_vs_seq_len",
         "model": "kvcache_transformer",
+        "attention": args.transformer_attention,
         "device": str(device),
         "embed_size": embed_size,
         "batch_size": args.batch_size,
@@ -576,7 +657,8 @@ def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
         n_blocks=6,
         block_size=sweep_block_size,
         use_position_emb=args.use_position_emb,
-        use_post_norm=args.use_post_norm
+        use_post_norm=args.use_post_norm,
+        attention_type=args.transformer_attention,
     ).to(device)
 
     for L in seq_lens:
@@ -598,7 +680,7 @@ def run_timing_sweep(args, vocab_size, device, embed_size, block_size):
         })
         print(f"[timing_sweep] seq_len={L} mean_ms={mean_ms:.2f} std_ms={std_ms:.2f} tokens/s={tps:.1f}")
 
-    sweep_path = os.path.join(args.output_dir, "timing_sweep_kvcache_transformer.json")
+    sweep_path = os.path.join(args.output_dir, f"timing_sweep_{args.transformer_attention}_transformer.json")
     with open(sweep_path, "w", encoding="utf-8") as f:
         json.dump(sweep_results, f, indent=2)
     print(f"[timing_sweep] Saved timing sweep results to {sweep_path}")
@@ -614,7 +696,7 @@ def monosemantic_analysis_for_token(token_id, model, enc, device="cpu", top_n=5)
 
 
 ################################################################################
-# 7. Single code path for text generation (now uses KV-cache for Transformer)
+# 7. Single code path for text generation
 ################################################################################
 
 def nucleus_sampling(logits, p=0.95):
@@ -652,10 +734,8 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
                   monosemantic_info=None,
                   do_monosemantic=False):
     """
-    A single code path for all models:
-      - We keep a growing list 'context_tokens'.
-      - TransformerModel uses KV-cache to avoid recomputing past.
-      - Others (LSTM/MLP) run on the full prefix each step.
+    - Softmax Transformer uses KV-cache to avoid recomputing past.
+    - Linear Transformer (and others) recompute on the full prefix each step.
     """
     was_training = model.training
     model.eval()
@@ -664,10 +744,10 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
         context_tokens = enc.encode(init_text)
         annotation_list = []
 
-        past_kv = None  # for TransformerModel KV cache
+        past_kv = None  # for TransformerModel KV cache (softmax only)
 
         for step_i in range(max_new_tokens):
-            if isinstance(model, TransformerModel):
+            if isinstance(model, TransformerModel) and getattr(model, "supports_kv_cache", False):
                 # Use cache: feed full context on first step, then 1 token at a time
                 if past_kv is None:
                     seq_tensor = torch.tensor(context_tokens, dtype=torch.long, device=device).unsqueeze(1)  # (L,1)
@@ -683,7 +763,6 @@ def generate_text(model, enc, init_text, max_new_tokens=20, device="cpu",
                 next_logits = logits_seq[-1, 0, :]
 
             if top_p is None:
-                # greedy
                 chosen_token = torch.argmax(next_logits).item()
             else:
                 chosen_token = nucleus_sampling(next_logits, p=top_p)
@@ -922,6 +1001,7 @@ def main():
         device = torch.device(requested_device_id)
 
     print(f"Using device: {device}, block_size={block_size}, kgram_k={k}, chunk_size={chunk_size}, embed_size={embed_size}")
+    print(f"Transformer attention: {args.transformer_attention}")
 
     ############################################################################
     # Data
@@ -1052,7 +1132,8 @@ def main():
         n_blocks=6,
         block_size=block_size,
         use_position_emb=args.use_position_emb,
-        use_post_norm=args.use_post_norm
+        use_post_norm=args.use_post_norm,
+        attention_type=args.transformer_attention,
     ).to(device)
 
     models = {
