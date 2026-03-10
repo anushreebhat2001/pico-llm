@@ -1,6 +1,4 @@
-## Core Tasks to implement - 
-
-## 1. Sanity Check (Baseline Run)
+## For Sanity Check (Baseline Run)
 
 Sanity check that you are able to run the code, which by default will only run an LSTM on TinyStories. It
 is possible that the code is too slow or runs out of memory for you: consider using an aggressive memorysaving command-line argument such as “--block size 32”, and also using the simplified sequence
