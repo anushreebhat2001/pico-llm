@@ -1,4 +1,4 @@
-# starter code by matus & o1-pro
+# starter code by matus & o1-pro ( Functions not filled in )
 import argparse
 import time
 import random
