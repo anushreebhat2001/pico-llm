@@ -4,8 +4,6 @@ import argparse
 import torch
 import tiktoken
 
-# This must import the SAME definitions you used for training.
-# If your training file is named pico-llm.py, keep a copy as pico_llm.py to import.
 from pico_llm import TransformerModel, generate_text
 
 
